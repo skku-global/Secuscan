@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local environments and secrets
+# CRITICAL: .env holds API keys, database secrets, and credentials.
+# In Cloud Run, configuration is injected via container environment variables
+# or Google Secret Manager — never baked into the container image.
+.env
+.env.*
+.venv/
+venv/
+env/
+ENV/
+
+# Test artifacts and local probes
+tests/
+*.log
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docker metadata
+Dockerfile
+.dockerignore
