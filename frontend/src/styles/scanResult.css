@@ -224,12 +224,37 @@
   gap: 2px;
 }
 
+.finding-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
 .finding-title {
   font-size: var(--text-base);
   font-weight: var(--weight-medium);
   letter-spacing: var(--tracking-snug);
   color: var(--ink);
 }
+
+.finding-tier-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.finding-tier-tag.tier-2 {
+  background: var(--navy-wash, rgba(17, 24, 39, 0.06));
+  color: var(--navy, #1e3a8a);
+  border: 1px solid var(--border-subtle, rgba(30, 58, 138, 0.2));
+}
+
 .finding-desc {
   font-size: var(--text-sm);
   color: var(--muted);

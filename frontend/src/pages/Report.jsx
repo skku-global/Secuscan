@@ -179,7 +179,12 @@ export default function Report() {
                     strokeWidth={2}
                   />
                   <div className="finding-body">
-                    <p className="finding-title">{finding.title}</p>
+                    <div className="finding-title-row">
+                      <p className="finding-title">{finding.title}</p>
+                      {finding.tier === 2 && (
+                        <span className="finding-tier-tag tier-2">Tier 2</span>
+                      )}
+                    </div>
                     <p className="finding-desc">{finding.description}</p>
                   </div>
                   <SeverityBadge severity={finding.severity} />

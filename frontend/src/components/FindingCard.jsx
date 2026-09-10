@@ -125,9 +125,12 @@ export default function FindingCard({ finding }) {
         />
 
         <div className="finding-body">
-          {/* A <span> in a div, not a <p>: still invalid inside a button, and
-              this content genuinely is the button's label rather than prose. */}
-          <span className="finding-title">{finding.title}</span>
+          <div className="finding-title-row">
+            <span className="finding-title">{finding.title}</span>
+            {finding.tier === 2 && (
+              <span className="finding-tier-tag tier-2">Tier 2</span>
+            )}
+          </div>
           <span className="finding-desc">{finding.description}</span>
         </div>
 

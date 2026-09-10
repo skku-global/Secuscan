@@ -1,51 +1,61 @@
 /* ============================================================================
-   SCANFORM.JSX — the URL input plus the mandatory consent checkbox.
+   SCANFORM.JSX — the URL input, Tier selection, and Tier 2 credentials form.
 
-   WHY THIS EXISTS: this is the front door of the whole product. It also carries
-   a legal requirement, not just a UI one — the spec demands a consent step
-   confirming the user is authorised to scan the target. Scanning a site you do
-   not own or have permission to test is not something to make easy by accident,
-   so the submit button stays disabled until the box is ticked.
+   WHY THIS EXISTS: this is the front door of the whole product.
+   Tier 1 scans are purely external, passive checks against the public site.
+   Tier 2 is the paid, access-gated deep audit tier requiring client-granted access
+   via a dedicated, disposable test account (staging URL, username, password).
 
-   This now runs a REAL scan: it POSTs to the backend, waits for the checks to
-   actually run against the target site, and navigates to the id the server
-   returns. Because a real scan makes real network requests to someone else's
-   server, it takes seconds rather than milliseconds — which is why this file
-   grew a submitting state and a disabled button. Nothing here is instant any
-   more, and pretending otherwise would invite double submissions.
+   ACCESS & RETENTION MODEL:
+   - Credentials submitted here are encrypted at rest with authenticated AES-128
+     (Fernet) and stored with a 24-hour TTL in MongoDB.
+   - The user's account must have an active Starter, Business, or Enterprise plan
+     (Tier >= 2) to launch Tier 2 audits; Free users are guided to upgrade.
+   - Credentials are used solely by active Tier 2 checks and are zeroized in memory
+     immediately upon completion of the scan. Passwords are NEVER written to logs,
+     scan finding evidence, or audit reports.
    ========================================================================== */
 
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Search, AlertCircle } from 'lucide-react'
+import { useNavigate, Link } from 'react-router-dom'
+import {
+  Search,
+  AlertCircle,
+  Lock,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  ArrowUpRight,
+  Key,
+} from 'lucide-react'
 
 import { createScan } from '../lib/api'
+import { useAuth } from '../context/AuthContext'
 
 export default function ScanForm() {
-  /* [React] Four independent pieces of local state, one useState each.
-     Grouping them into a single object is possible but rarely worth it. */
+  const { user } = useAuth()
+  const navigate = useNavigate()
+
+  /* Core scan fields */
   const [url, setUrl] = useState('')
   const [consented, setConsented] = useState(false)
   const [error, setError] = useState('')
-
-  /* [React] The submitting flag exists purely because the scan is slow. It
-     drives two things: the button label, and the guard against a second submit
-     while the first is still running. Any form that calls a network is
-     incomplete without it. */
   const [submitting, setSubmitting] = useState(false)
 
-  /* [React] useNavigate returns a function that changes the URL from code
-     (as opposed to <Link>, which is for something the user clicks). */
-  const navigate = useNavigate()
+  /* Tier selection: 1 (Standard passive) or 2 (Deep access-gated audit) */
+  const [tier, setTier] = useState(1)
 
-  /* [General] Basic client-side validation. This is a convenience check, not a
-     security control — anything typed in a browser can be tampered with, which
-     is why main.py validates the URL again on arrival. This one exists only to
-     save a pointless round trip and give an instant answer. */
+  /* Tier 2 test account credentials */
+  const [stagingUrl, setStagingUrl] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+
+  const userPlanTier = user?.plan?.tier || 1
+  const canRunTier2 = Boolean(user && userPlanTier >= 2)
+
   function isValidUrl(value) {
     try {
-      // [General] The built-in URL constructor throws if the string is not a
-      // valid URL — so a try/catch is the simplest reliable test.
       const parsed = new URL(value)
       return parsed.protocol === 'http:' || parsed.protocol === 'https:'
     } catch {
@@ -53,43 +63,58 @@ export default function ScanForm() {
     }
   }
 
-  /* [React] The handler is now `async` because it awaits the scan. Note that
-     React does not care — an event handler is allowed to return a promise, and
-     nothing waits on it. That is also the catch: an error thrown inside an async
-     handler will NOT be caught by any React error boundary, so the try/catch
-     below is the only thing standing between a failed request and a form that
-     silently does nothing. */
   async function handleSubmit(event) {
-    // [General] Without this, the browser reloads the whole page on submit,
-    // which is the default behaviour of an HTML form and destroys React state.
     event.preventDefault()
-
-    // [General] Guard against a double submit. The button is disabled while
-    // submitting, but Enter in the text field can still fire the form, so the
-    // real defence belongs here rather than in the markup.
     if (submitting) return
 
-    // [General] .trim() removes accidental leading/trailing spaces — a very
-    // common source of "why doesn't my input work" confusion.
-    const trimmed = url.trim()
+    const trimmedUrl = url.trim()
 
-    if (!isValidUrl(trimmed)) {
-      setError('Enter a full URL, including https://')
-      return   // stop here; do not submit
+    if (!isValidUrl(trimmedUrl)) {
+      setError('Enter a full target URL, including https://')
+      return
+    }
+
+    if (tier === 2) {
+      if (!user) {
+        setError('Please sign in to run a Tier 2 deep audit.')
+        return
+      }
+      if (!canRunTier2) {
+        setError('Tier 2 audits require a Starter or Business plan. Please upgrade to continue.')
+        return
+      }
+      if (!username.trim()) {
+        setError('Enter a test account username or email for Tier 2 auditing.')
+        return
+      }
+      if (!password) {
+        setError('Enter a test account password for Tier 2 auditing.')
+        return
+      }
+      if (stagingUrl.trim() && !isValidUrl(stagingUrl.trim())) {
+        setError('Enter a valid staging URL (including https://) or leave it blank to use the target URL.')
+        return
+      }
     }
 
     setError('')
     setSubmitting(true)
 
     try {
-      /* [General] The consent value is sent explicitly rather than assumed from
-         the disabled button. The server re-checks it, and passing the actual
-         state means the two can never drift apart. */
-      const scan = await createScan(trimmed, consented)
+      const scanOptions = {
+        tier,
+        credentials:
+          tier === 2
+            ? {
+                stagingUrl: stagingUrl.trim() || undefined,
+                username: username.trim(),
+                password,
+              }
+            : null,
+      }
 
-      /* If the scan ran but could not be filed, its id points at nothing — so
-         navigating would land on a "not found" page and look like a bug. Saying
-         so here is more honest than a confusing empty report. */
+      const scan = await createScan(trimmedUrl, consented, scanOptions)
+
       if (scan.stored === false) {
         setError(
           'The scan ran, but the result could not be saved, so there is no report to open. Check the database connection and try again.',
@@ -97,71 +122,192 @@ export default function ScanForm() {
         return
       }
 
-      /* THE PAYOFF. This used to be a hardcoded navigate to the example report;
-         it is now the id of a scan that genuinely just ran against the URL
-         above. [General] Template literal builds the path. */
       navigate(`/dashboard/scan/${scan.id}`)
     } catch (caught) {
-      /* [General] Everything reaches here: a rejected fetch (server not
-         running) and the errors api.js throws for a 4xx or 5xx. The server's own
-         message is shown when there is one, because it is specific and useful —
-         it is what explains a refused private address or a rejected URL. */
       setError(
         caught.message ||
           'The scan could not be started. Check the backend is running on port 8000.',
       )
     } finally {
-      /* [General] `finally` runs on success, on failure, and on the early return
-         above. Resetting the flag anywhere else would leave the form
-         permanently stuck after one error — a bug worth knowing the shape of. */
       setSubmitting(false)
     }
   }
 
+  const isSubmitDisabled =
+    !consented ||
+    submitting ||
+    (tier === 2 && (!canRunTier2 || !username.trim() || !password))
+
   return (
     <form className="scan-form" onSubmit={handleSubmit}>
+      {/* --- Tier Selection Tabs ---------------------------------------- */}
+      <div className="tier-switch-container" role="radiogroup" aria-label="Select audit tier">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={tier === 1}
+          className={`tier-switch-btn ${tier === 1 ? 'is-active' : ''}`}
+          onClick={() => setTier(1)}
+          disabled={submitting}
+        >
+          <div className="tier-btn-title">Tier 1: Standard Audit</div>
+          <div className="tier-btn-sub">Passive external checks · No credentials required</div>
+        </button>
+
+        <button
+          type="button"
+          role="radio"
+          aria-checked={tier === 2}
+          className={`tier-switch-btn ${tier === 2 ? 'is-active' : ''}`}
+          onClick={() => setTier(2)}
+          disabled={submitting}
+        >
+          <div className="tier-btn-title">
+            <span>Tier 2: Deep Audit</span>
+            <span className="tier-pro-pill">PRO</span>
+          </div>
+          <div className="tier-btn-sub">Access-gated verification · Client test account required</div>
+        </button>
+      </div>
+
+      {/* --- Tier 2 Access & Credential Submission Box ------------------- */}
+      {tier === 2 && (
+        <div className="tier-credentials-card">
+          <div className="tier-cred-header">
+            <div className="tier-cred-title">
+              <Lock size={15} strokeWidth={2} />
+              <span>Tier 2 Test Account Access</span>
+            </div>
+            <span className="tier-secure-pill">
+              <ShieldCheck size={13} strokeWidth={2} />
+              Encrypted at Rest
+            </span>
+          </div>
+
+          {!user ? (
+            <div className="tier-plan-notice">
+              <p>Tier 2 audits require an active Starter or Business subscription.</p>
+              <Link to="/login" className="btn-secondary btn-sm">
+                Sign in to continue
+              </Link>
+            </div>
+          ) : !canRunTier2 ? (
+            <div className="tier-plan-notice">
+              <p>
+                Your account is currently on the <strong>{user?.plan?.name || 'Free'}</strong> plan.
+                Tier 2 access-gated audits require a <strong>Starter</strong> or <strong>Business</strong> subscription.
+              </p>
+              <Link to="/dashboard/billing" className="btn-primary btn-sm">
+                Upgrade plan <ArrowUpRight size={14} />
+              </Link>
+            </div>
+          ) : (
+            <div className="tier-cred-fields">
+              <p className="tier-cred-note">
+                Provide a dedicated, disposable test account created specifically for this audit.
+                Never provide your personal or real administrator account.
+              </p>
+
+              <div className="tier-input-group">
+                <label htmlFor="staging-url-input">
+                  Staging / Test Environment URL <span className="label-optional">(optional)</span>
+                </label>
+                <input
+                  id="staging-url-input"
+                  type="text"
+                  className="input mono"
+                  placeholder="https://staging.your-site.com (leave blank to use target URL)"
+                  value={stagingUrl}
+                  onChange={(e) => setStagingUrl(e.target.value)}
+                  disabled={submitting}
+                />
+              </div>
+
+              <div className="tier-input-row">
+                <div className="tier-input-group">
+                  <label htmlFor="test-username-input">Test Account Username / Email</label>
+                  <input
+                    id="test-username-input"
+                    type="text"
+                    className="input mono"
+                    placeholder="e.g. audit_test@example.com"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    disabled={submitting}
+                    required
+                  />
+                </div>
+
+                <div className="tier-input-group">
+                  <label htmlFor="test-password-input">Test Account Password</label>
+                  <div className="password-input-wrapper">
+                    <input
+                      id="test-password-input"
+                      type={showPassword ? 'text' : 'password'}
+                      className="input mono"
+                      placeholder="Disposable test account password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={submitting}
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle-btn"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <p className="tier-security-guarantee">
+                <Key size={13} strokeWidth={2} />
+                <span>
+                  Credentials are encrypted with AES-128 and automatically purged after 24 hours.
+                  They are scrubbed from memory immediately upon completion of the checks.
+                </span>
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* --- Target URL Input Row --------------------------------------- */}
       <div className="scan-input-row">
-        {/* [React] A CONTROLLED INPUT — the defining React form pattern.
-            `value` comes from state, and onChange writes back to state, so
-            React state is the single source of truth for what is typed.
-            Omit onChange and the field appears frozen: another classic bug. */}
         <input
           type="text"
           className="input scan-input mono"
           placeholder="https://your-site.com"
           value={url}
-          /* event.target.value is the input's current text. [General] */
           onChange={(event) => setUrl(event.target.value)}
           aria-label="Target URL to scan"
-          /* [General] Locking the field during the scan keeps the URL being
-             scanned and the URL on screen the same thing. */
           disabled={submitting}
         />
 
-        {/* [React] `disabled` takes a real boolean here, not a string.
-            The button unlocks only once the consent box is ticked, and locks
-            again while a scan is in flight. */}
         <button
           type="submit"
           className="btn-primary"
-          disabled={!consented || submitting}
+          disabled={isSubmitDisabled}
         >
           <Search size={16} strokeWidth={2} />
-          {/* [React] A ternary inside JSX — the standard way to choose between
-              two pieces of content. The label carries the waiting state; there
-              is no spinner, because a spinner would be decoration and the
-              design system is deliberately restrained. */}
-          {submitting ? 'Scanning…' : 'Run scan'}
+          {submitting
+            ? tier === 2
+              ? 'Running Tier 2 audit…'
+              : 'Scanning…'
+            : tier === 2
+            ? 'Run Tier 2 audit'
+            : 'Run scan'}
         </button>
       </div>
 
-      {/* [General] Wrapping the checkbox in a <label> means clicking the text
-          also toggles the box — a small accessibility win that is free. */}
+      {/* --- Mandatory Consent Checkbox --------------------------------- */}
       <label className="consent-row">
         <input
           type="checkbox"
-          /* Checkboxes use `checked` rather than `value`, but the controlled
-             pattern is identical: state in, onChange out. [React] */
           checked={consented}
           onChange={(event) => setConsented(event.target.checked)}
           disabled={submitting}
@@ -171,12 +317,7 @@ export default function ScanForm() {
         </span>
       </label>
 
-      {/* Show the validation message only when there is one. [React]
-
-          role="alert" makes a screen reader announce the message the moment it
-          appears. Without it the text is on the page but silent, so a
-          non-sighted user submits, hears nothing, and has no idea the form
-          refused — the failure is invisible rather than merely unstyled. */}
+      {/* --- Error Display ---------------------------------------------- */}
       {error && (
         <p className="scan-error" role="alert">
           <AlertCircle className="icon" size={16} strokeWidth={2} aria-hidden="true" />
@@ -184,19 +325,20 @@ export default function ScanForm() {
         </p>
       )}
 
-      {/* [React] The waiting message is conditional on the same flag as the
-          button. A real scan contacts the target site, so the delay needs
-          explaining or it reads as a hang. */}
+      {/* --- Submitting Status Note ------------------------------------- */}
       {submitting && (
         <p className="scan-note">
-          Running checks against the live site. This takes a few seconds.
+          {tier === 2
+            ? 'Executing Tier 1 baseline checks and Tier 2 access-gated audit probes against the target. This takes a few moments.'
+            : 'Running checks against the live site. This takes a few seconds.'}
         </p>
       )}
 
-      {/* A standing reminder of what this button is really for. */}
+      {/* --- Explanatory Note ------------------------------------------- */}
       <p className="scan-note">
-        Tier 1 scans are external only and run against the public site.
-        Tier 2 requires access you grant explicitly.
+        {tier === 1
+          ? 'Tier 1 audits run purely passive, read-only external checks.'
+          : 'Tier 2 audits perform deep, active verification using your supplied test account.'}
       </p>
     </form>
   )
