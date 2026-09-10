@@ -1,0 +1,636 @@
+/* ============================================================================
+   AUTH.CSS — the login and signup pages.
+
+   The layout is centred and narrow because an auth form should have nothing else
+   competing for attention.
+
+   WHAT CHANGED HERE: `.auth-input` used to be a full copy of the field styling,
+   including `outline: none` on focus with only a border-colour change to replace
+   it. That is a WCAG 2.4.7 failure, and it appeared in this file, in landing.css
+   and in the scan form — three copies of the same defect. The field is now
+   base.css's `.input`, which has a real focus ring, and both pages pass the class
+   list `"input auth-input"`. Whatever is left below is genuinely auth-specific.
+   ========================================================================== */
+
+.auth-page {
+  max-width: var(--width-form);
+  margin: 0 auto;
+  /* <body> already supplies its own top/bottom padding, so this adds only the
+     EXTRA breathing room an auth card wants. Repeating the full amount here
+     would stack and push the card below the fold. [General] */
+  padding: var(--space-10) 0;
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-lg);
+  letter-spacing: var(--tracking-snug);
+  margin-bottom: var(--space-8);
+  color: var(--navy);
+}
+
+.auth-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-snug);
+  text-align: center;
+  margin-bottom: var(--space-1);
+}
+
+.auth-sub {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  text-align: center;
+  margin-bottom: var(--space-6);
+}
+
+/* The form now sits on a real card. WHY: an auth form floating directly on the
+   page background has no boundary, so on a wide window the fields read as three
+   unrelated bars rather than as one thing you fill in. A bordered surface is the
+   Clinical Ledger way to say "this is a unit" — no shadow, no lift. */
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-6);
+}
+
+.auth-form { display: flex; flex-direction: column; gap: var(--space-4); }
+
+/* `.auth-field` and `.auth-label` used to live here and were a character-for-
+   character copy of base.css's `.field` and `.field-label`. Both pages now use
+   the shared pair, for the same reason `.auth-input` became `.input`: a label
+   style that exists in two files drifts, and the copy nobody edits is the one
+   that ends up wrong. */
+
+/* Only the bits `.input` cannot know about. */
+.auth-input { width: 100%; }
+
+.auth-form .btn-primary { justify-content: center; margin-top: var(--space-1); }
+
+.auth-alt {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  text-align: center;
+  margin-top: var(--space-5);
+}
+.auth-alt a {
+  color: var(--navy);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm);
+}
+.auth-alt a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* WHY THIS EXISTS: what the server said when it refused. Uses the critical
+   colours rather than a new red, so a rejected sign-in speaks the same severity
+   language the findings do. Now with an icon and a matching border, so it reads
+   as a message rather than as text that happened to change colour. [General] */
+.auth-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  background: var(--critical-bg);
+  color: var(--critical-strong);
+  border: 1px solid var(--critical-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+.auth-error .icon { color: var(--critical); margin-top: 1px; }
+
+/* ============================================================================
+   THE PASSWORD CHECKLIST — signup only.
+
+   Its whole job is to answer "will this be accepted?" while someone is still
+   typing, so it has to be readable at a glance and never alarming. Nothing here
+   enforces anything; see Signup.jsx.
+   ========================================================================== */
+
+.pw-check {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* Pulled up against the password field it describes. The form's own gap would
+     otherwise leave it floating between two fields, belonging to neither. */
+  margin-top: calc(-1 * var(--space-1));
+}
+
+/* The track. A fixed 3px bar rather than a percentage height, so it reads as a
+   hairline indicator and not a download progress bar. */
+.pw-meter {
+  height: 3px;
+  background: var(--border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.pw-meter-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  /* [General] Transitioning width AND background-color means a rule being met is
+     a small movement rather than a jump — enough to notice out of the corner of
+     an eye while looking at the keyboard. */
+  transition:
+    width var(--duration-base) var(--ease-out),
+    background-color var(--duration-base) var(--ease-out);
+}
+
+/* Colour by how many rules are met, using the existing severity palette rather
+   than inventing three new colours. Zero has no rule of its own: the fill is 0%
+   wide and therefore invisible. */
+.pw-meter-fill.met-1,
+.pw-meter-fill.met-2 { background: var(--critical); }
+.pw-meter-fill.met-3 { background: var(--warning); }
+.pw-meter-fill.met-4 { background: var(--passed); }
+
+.pw-label { font-size: var(--text-xs); color: var(--muted); }
+
+.pw-list {
+  /* [General] list-style: none removes the bullets; the padding reset removes the
+     indent browsers add to make room for them. Both are needed — dropping the
+     second leaves the list mysteriously inset. */
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+}
+
+.pw-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* An unmet rule is grey, not red. It is not an error — it is a rule the user has
+   not GOT TO yet, and painting a half-typed password in failure colours is the
+   detail that makes a signup form feel like it is telling you off. Red is
+   reserved for the server actually refusing. [General] */
+.pw-unmet { color: var(--muted); }
+.pw-met { color: var(--passed); }
+
+/* ============================================================================
+   THE WIDE AUTH LAYOUT — signup only.
+
+   WHY ONLY SIGNUP: it is the one auth page with something worth saying beside the
+   form. Login has nothing to sell — the person is already a customer — and putting
+   a panel of features next to a password box is the kind of upsell that makes an
+   app feel like a funnel.
+
+   "PREMIUM" HERE IS SPACING AND TYPE, NOT DECORATION. There is no gradient, no
+   shadow, no glass and no new colour. Everything below is drawn from the same
+   tokens as the rest of the app, which is also why all three themes get it free.
+   ========================================================================== */
+
+.auth-page-wide {
+  /* Overrides `.auth-page`'s form width. Not a separate rule set: the brand mark,
+     the title and the card styling are all still wanted, so this widens the
+     container and changes nothing else. */
+  max-width: var(--width-wide);
+}
+
+.auth-split {
+  display: grid;
+  /* The form column is fixed at the same width it has on every other auth page,
+     and the panel takes what is left. `minmax(0, 1fr)` rather than `1fr` because a
+     bare `1fr` refuses to shrink below its content's intrinsic width, which is how
+     a long unbroken string in the panel would push the whole grid wider than the
+     window. [General] */
+  grid-template-columns: var(--width-form) minmax(0, 1fr);
+  gap: var(--space-12);
+  align-items: start;
+}
+
+.auth-main { min-width: 0; }
+
+.auth-aside {
+  /* A left hairline instead of a second card. WHY: two bordered boxes side by side
+     read as two competing things to do. A single rule says "this is supporting
+     material" and keeps the form the only object on the page with a frame. */
+  border-left: 1px solid var(--border);
+  padding-left: var(--space-8);
+}
+
+.auth-aside .section-label { margin-bottom: var(--space-5); }
+
+.auth-points {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  /* The list markers would be a second visual system next to the icons. */
+  list-style: none;
+}
+
+/* Targeted through the parent because the <li> carries no class of its own — the
+   items are generated from SIGNUP_POINTS and there is only ever one kind. */
+.auth-points li {
+  display: grid;
+  /* Icon column sized to the icon, text column takes the rest. `start` alignment so
+     the icon sits with the first line of the title rather than floating in the
+     middle of a two-line block. */
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.auth-point-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background: var(--navy-tint-soft);
+  color: var(--navy);
+  /* Stops the icon square being squeezed when the text beside it is long. */
+  flex-shrink: 0;
+}
+
+.auth-point-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  margin-bottom: 2px;
+}
+
+.auth-point-text {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: var(--leading-normal);
+}
+
+.auth-aside-note {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: var(--leading-normal);
+}
+
+/* THE PANEL DISAPPEARS, THE FORM IS UNTOUCHED. Below this width two columns would
+   each be too narrow to read, and the form is the page — so the support material
+   goes rather than shrinking both.
+
+   `display: none` rather than a stacked layout: stacked, the panel sits between the
+   form and the "already have an account" link on a phone, which is exactly where it
+   is most in the way. The same claims are on the landing page. */
+@media (max-width: 900px) {
+  .auth-page-wide { max-width: var(--width-form); }
+  .auth-split { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .auth-aside { display: none; }
+}
+
+/* ============================================================================
+   SHARED AUTH FURNITURE — used by every auth page.
+   ========================================================================== */
+
+/* THE "or use your email" RULE. A line with text sitting in it, built from a flex
+   row and two growing borders rather than a background-coloured span over a border
+   — the span approach has to know the page background, which is a different colour
+   in each of the three themes. */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-5) 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* A neutral message: a session that expired, a code that was sent, something that
+   worked. NOT an error and not a warning — those two colours mean something
+   specific in this app, and spending one here would dilute both. */
+.auth-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+  line-height: var(--leading-snug);
+}
+
+/* Small print INSIDE a card, under the button - a caveat attached to the thing
+   above it, not a standalone note. */
+.auth-fine {
+  font-size: var(--text-2xs);
+  color: var(--muted);
+  line-height: var(--leading-snug);
+  text-align: center;
+}
+
+/* A label with something on its far right — "Password" and "Forgotten?".
+   `baseline` alignment rather than `center`, so two different font sizes sit on the
+   same line of text instead of being centred against each other. */
+.field-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+/* [General] `.field-label` carries its own bottom margin for the normal case where
+   it is alone above an input. Inside `.field-row` the row owns the spacing, so the
+   label's own copy has to go or the gap doubles. */
+.field-row .field-label { margin-bottom: 0; }
+
+.field-aside-link {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.field-aside-link:hover {
+  color: var(--navy);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ============================================================================
+   THE GOOGLE BUTTON.
+
+   The button itself is an iframe Google renders — its size, colours and text are
+   not ours to style, and trying would break at their next release. What is here is
+   only the space around it and a way to make it unavailable.
+   ========================================================================== */
+
+.google-signin {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  /* Reserves the height Google's large button occupies, so the form below does not
+     jump downwards when the script finishes loading. */
+  min-height: 44px;
+}
+
+/* WHY A COVER RATHER THAN `disabled`: the button lives in a cross-origin iframe, so
+   there is no element here to disable and no way to reach into it. An overlay that
+   swallows the click is the only mechanism available. Semi-transparent against the
+   page so the button reads as unavailable rather than simply broken. */
+.google-signin-cover {
+  position: absolute;
+  inset: 0;
+  background: var(--surface);
+  opacity: 0.6;
+  cursor: not-allowed;
+  border-radius: var(--radius-md);
+}
+
+.google-signin-status {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-align: center;
+  margin-top: var(--space-2);
+}
+
+/* ============================================================================
+   THE CODE PAGES — /login/verify and /login/enrol.
+   ========================================================================== */
+
+/* THE THREE WAYS IN. Deliberately NOT styled as tabs, matching the decision in
+   TwoFactor.jsx not to claim role="tablist": these are three buttons that change
+   the form, and dressing them as tabs would promise arrow-key navigation the
+   component does not implement. */
+.auth-modes {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+  /* Three narrow buttons on a phone would each truncate their label. */
+  flex-wrap: wrap;
+}
+
+.auth-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.auth-mode:hover { background: var(--surface-hover); color: var(--ink); }
+
+.auth-mode:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+/* THE SELECTED STATE CARRIES WEIGHT AND A BORDER, NOT ONLY A COLOUR — WCAG 1.4.1,
+   the same rule that puts an icon beside every error message in this app. */
+.auth-mode.is-active {
+  background: var(--navy-tint);
+  border-color: var(--navy);
+  color: var(--navy);
+  font-weight: var(--weight-medium);
+}
+
+/* Six digits, typed once and read back to check. Wide tracking and a fixed-width
+   face make a transposed pair visible; `tabular` alone would not space them out. */
+.auth-code-input {
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  letter-spacing: 0.28em;
+  text-align: center;
+  /* [General] letter-spacing applies after the last character too, which drags the
+     visual centre leftwards. Adding half of it back as left padding compensates. */
+  padding-left: calc(var(--space-4) + 0.28em);
+}
+
+.enrol-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin-bottom: var(--space-6);
+  padding-left: var(--space-5);
+  /* Numbers kept, unlike `.auth-points`: the order genuinely matters here — the
+     code cannot be entered before the key has been scanned. */
+  list-style: decimal;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.enrol-step-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink);
+  margin-bottom: var(--space-1);
+}
+
+.enrol-step-text {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: var(--leading-normal);
+}
+
+.enrol-step-meta {
+  font-size: var(--text-2xs);
+  color: var(--muted-soft);
+  margin-top: var(--space-2);
+}
+
+/* THE WHITE PADDING IS NOT DECORATION. A QR code needs a light quiet zone around
+   its dark modules to be readable, and in the navy theme the card behind it is
+   dark — so the surround is a literal white here rather than a surface token. This
+   is the one place in the app where a hard-coded colour is right, because it is a
+   property of the scanner and not of the theme. */
+.enrol-qr {
+  display: block;
+  margin: var(--space-4) auto;
+  padding: var(--space-3);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  /* The server renders SVG, so it scales cleanly; this stops it overflowing a
+     narrow card. */
+  max-width: 100%;
+  height: auto;
+}
+
+/* The secret in text, for an app with no camera. Selectable, spaced for
+   transcription, and wrapping rather than overflowing — a 32-character base32
+   string does not fit a phone-width card on one line. */
+.enrol-secret {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  letter-spacing: 0.12em;
+  text-align: center;
+  color: var(--ink);
+  word-break: break-all;
+  /* [General] `all` selects the whole value on a single click, which is what you
+     want for something being pasted into an authenticator app. */
+  user-select: all;
+}
+
+/* ============================================================================
+   THE RECOVERY CODES PANEL.
+
+   Read RecoveryCodes.jsx first: this is the only screen on which these values are
+   ever readable. The styling job is to make that feel like a task rather than a
+   confirmation dialog.
+   ========================================================================== */
+
+.recovery-panel { display: flex; flex-direction: column; gap: var(--space-4); }
+
+.recovery-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+/* Warning amber, and here it IS the right choice — unlike in the stub note. This is
+   a genuine "you can lose something" state, which is what amber means everywhere
+   else in the app. */
+.recovery-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  color: var(--warning-strong);
+}
+
+.recovery-title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-snug);
+  margin-bottom: var(--space-1);
+}
+
+.recovery-sub {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: var(--leading-normal);
+}
+
+/* TWO COLUMNS SO TEN CODES FIT WITHOUT SCROLLING. Someone copying these onto paper
+   should see the whole set at once — a scrolling list is how you write down eight
+   of ten and never notice. */
+.recovery-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-4);
+  /* Sunken rather than bordered: it reads as an inset field of data inside the card
+     rather than a second card. */
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  /* `inside` keeps the number in the grid cell with its code; the default `outside`
+     would hang it in the gutter, where the grid gives it no room. */
+  list-style: decimal inside;
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.recovery-list li { letter-spacing: 0.04em; }
+
+@media (max-width: 480px) {
+  /* One column on a phone. Two columns of a 10-character code at this width means
+     both of them wrap, which defeats the point of a fixed-width face. */
+  .recovery-list { grid-template-columns: minmax(0, 1fr); }
+}
+
+.recovery-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+
+.recovery-actions .btn-secondary { flex: 1; justify-content: center; }
+
+/* THE GATE. Given real presence — a bordered row, not a checkbox hiding under a
+   line of grey text — because it is the last thing between a user and losing the
+   only way back into their account. */
+.recovery-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+  line-height: var(--leading-snug);
+  cursor: pointer;
+}
+
+.recovery-ack input {
+  /* Native checkbox, deliberately. A custom one is a lot of CSS to reproduce what
+     every platform already draws correctly and accessibly, and this is not a
+     control anyone needs to be charmed by. [General] `accent-color` recolours the
+     native box to match the app in one line. */
+  accent-color: var(--navy);
+  width: 16px;
+  height: 16px;
+  /* Aligns the box with the first line of a sentence that may wrap to two. */
+  margin-top: 1px;
+  flex-shrink: 0;
+  cursor: pointer;
+}

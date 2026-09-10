@@ -1,0 +1,340 @@
+/* ============================================================================
+   LANDING.CSS — the public front page.
+
+   Same Clinical Ledger rules as everywhere else: hairline borders, tinted
+   grounds, no drop shadows. Every value now comes from tokens.css — the inline
+   hex codes that used to be here (#FAFBFC, #9AA2AE, #EDEFF3, #E7ECF5) are named
+   tokens now, which is what lets the dark theme reach this page at all.
+   ========================================================================== */
+
+/* ============================================================================
+   HERO
+   ========================================================================== */
+
+.hero {
+  max-width: 640px;
+  margin: 0 auto var(--space-16);
+  text-align: center;
+  padding-top: var(--space-8);
+}
+
+.hero-title {
+  color: var(--navy);      /* spec: navy is the header colour */
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  margin-bottom: var(--space-4);
+  /* Tighter than before (-0.018em vs -0.01em). At 34px the default tracking of a
+     face designed for body text is visibly loose — display sizes need pulling in,
+     and this is the same --tracking-tight every large heading in the app uses. */
+  letter-spacing: var(--tracking-tight);
+
+  /* [General] BALANCED WRAPPING. Without it a two-line headline can break as
+     eight words then one, leaving an orphan. `text-wrap: balance` asks the
+     browser to even out the lines. It only applies to short blocks by design, so
+     it is safe to leave on a heading and is ignored where it would be expensive. */
+  text-wrap: balance;
+}
+
+.hero-sub {
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  color: var(--muted);
+  margin-bottom: var(--space-8);
+  /* [General] `pretty` is the lighter-weight sibling of `balance`: it only avoids
+     a single-word last line, which is the specific ugliness in a paragraph. */
+  text-wrap: pretty;
+}
+
+/* ============================================================================
+   SCAN FORM — lives here because it appears only on this page.
+   ========================================================================== */
+
+.scan-form { text-align: left; }
+
+.scan-input-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+/* The input itself is now base.css's `.input`; this only positions it in the row.
+   The old copy of the field styling — including its `outline: none` with nothing
+   to replace it — is gone. */
+.scan-input {
+  flex: 1;         /* fill the space left over by the button */
+  min-width: 0;    /* [General] lets a flex item shrink below its content width;
+                      without it, long placeholder text overflows the row */
+}
+
+.consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  cursor: pointer;
+  line-height: var(--leading-snug);
+}
+/* Nudged down to sit on the first line's optical centre rather than its top. */
+.consent-row input { margin-top: 3px; }
+
+/* An error is a message, not a colour change. The icon plus the tinted ground
+   makes it a thing on the page you can point at, which a line of red text is
+   not — and it matches how .auth-error presents the same class of message. */
+.scan-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--critical-bg);
+  border: 1px solid var(--critical-border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--critical-strong);
+}
+
+/* NOTE — this is the one place outside a finding where critical-red appears, and
+   it is a deliberate reading of the rule rather than a breach of it: the message
+   is "your scan did not run", a failure of the security check itself. Anything
+   that is merely unavailable or unfinished uses grey (see .scan-note below). */
+
+.scan-note {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: var(--space-3);
+  line-height: var(--leading-snug);
+}
+
+/* ============================================================================
+   VALUE POINTS
+   ========================================================================== */
+
+.value-grid {
+  display: grid;
+  /* [General] auto-fit + minmax is the standard responsive grid: fit as many
+     columns as will hold 240px, then wrap. No media query needed. */
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-5);
+  margin-bottom: var(--space-20);
+}
+
+/* White fill, deliberately. Going transparent here matched the mockup's white
+   coverage (1.5%) but the mockup only ever depicted one dense data page — on a
+   landing page the effect was grey-on-grey with nothing to rest the eye on.
+   White cards on the paper-grey ground are what make the ground read as a ground
+   at all. [General] */
+.value-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+}
+
+/* The icon now sits in a tinted square rather than floating as a bare navy
+   glyph. A glyph on its own reads as an artefact of the text; a contained one
+   reads as a deliberate element — and it gives the card a fixed visual anchor so
+   three cards of differing text length still look like a set. */
+.value-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--navy-tint);
+  color: var(--navy);
+}
+
+.value-title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-snug);
+  margin-bottom: var(--space-2);
+}
+.value-text {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--muted);
+}
+
+/* ============================================================================
+   PRICING
+   ========================================================================== */
+
+.pricing { margin-bottom: var(--space-16); }
+
+.section-heading {
+  color: var(--navy);      /* spec: navy is the header colour */
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-snug);
+  margin-bottom: var(--space-2);
+  text-align: center;
+}
+
+.section-sub {
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  color: var(--muted);
+  text-align: center;
+  max-width: 560px;
+  margin: 0 auto var(--space-8);
+  text-wrap: pretty;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  align-items: stretch;    /* all cards match the tallest, so buttons align */
+}
+
+.pricing-card {
+  position: relative;      /* anchor for the absolutely-positioned ribbon */
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6) var(--space-5);
+  display: flex;
+  flex-direction: column;  /* lets margin-top:auto pin the button to the base */
+
+  /* [General] Naming the two properties rather than writing `all` keeps the
+     transition off layout properties, which are the expensive ones to animate. */
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+/* Emphasis comes from a heavier border, not a shadow. */
+.pricing-card.featured { border-color: var(--navy); }
+
+/* WHY THE HOVER EXISTS: a plan is a decision, and without it the cards read as
+   printed text rather than as choices you are weighing.
+
+   Deliberately NOT `cursor: pointer`, and no click handler on the card: the
+   button inside is the only thing that acts. A card that looks clickable but is
+   not is worse than one that never claimed to be.
+
+   [General] :focus-within matches when any DESCENDANT holds focus, so tabbing to
+   a plan button lights its card exactly as the mouse does. */
+.pricing-card:hover,
+.pricing-card:focus-within {
+  border-color: var(--navy);
+  /* An opaque tint, not rgba(). The cards are white on the paper-grey ground on
+     purpose; a translucent wash would let that grey through and drag the card
+     toward the background. --surface-hover stays clearly lighter than the page. */
+  background: var(--surface-hover);
+}
+
+.pricing-flag {
+  position: absolute;
+  top: -9px;
+  left: var(--space-5);
+  background: var(--navy);
+  color: #fff;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.plan-name {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-snug);
+  margin-bottom: var(--space-3);
+}
+
+.plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+.plan-amount {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-medium);
+  /* Prices are figures in a row of cards, so they get the same tabular treatment
+     as every other number in the app — £0 and £29 then occupy the same width. */
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+}
+.plan-cadence { font-size: var(--text-xs); color: var(--muted); }
+
+.plan-tagline {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--muted);
+  margin-bottom: var(--space-4);
+}
+
+/* Small tag showing which check depth the plan unlocks. */
+.plan-tier {
+  align-self: flex-start;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-4);
+}
+.plan-tier.tier-1 { color: var(--muted); background: var(--surface-sunken); }
+.plan-tier.tier-2 { color: var(--navy);  background: var(--navy-tint); }
+
+.plan-features {
+  list-style: none;   /* [General] the check icons act as the markers instead */
+  margin-bottom: var(--space-5);
+  flex: 1;            /* absorb spare height so buttons line up across cards */
+}
+.plan-features li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--ink-secondary);
+  margin-bottom: var(--space-2);
+}
+/* Navy, not passed-green. Clinical Ledger reserves all three severity colours
+   for findings, "nowhere else, since these carry real meaning, not decoration" —
+   and a tick marking a plan feature is decoration. */
+.plan-features svg { color: var(--navy); flex-shrink: 0; margin-top: 3px; }
+
+/* margin-top:auto in a column flex container pushes an item to the bottom. */
+.pricing-card button { margin-top: auto; justify-content: center; }
+
+/* ============================================================================
+   FOOTER
+   ========================================================================== */
+
+.landing-footer {
+  border-top: 1px solid var(--border);
+  padding: var(--space-6) 0 var(--space-10);
+  text-align: center;
+}
+.landing-footer p {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: var(--leading-relaxed);
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+/* ============================================================================
+   NARROW SCREENS
+   ========================================================================== */
+
+@media (max-width: 560px) {
+  .hero { padding-top: var(--space-4); margin-bottom: var(--space-12); }
+  .hero-title { font-size: var(--text-2xl); }
+
+  /* Stack the input above the button so neither gets squeezed. */
+  .scan-input-row { flex-direction: column; }
+
+  .value-grid { gap: var(--space-3); margin-bottom: var(--space-12); }
+}

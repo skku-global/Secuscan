@@ -1,0 +1,12 @@
+# Python bytecode cache — regenerated automatically, never committed.
+__pycache__/
+*.pyc
+
+# Virtual environment, if you create one here.
+.venv/
+venv/
+
+# Local configuration. HOLDS SECRETS — the Resend API key lives here.
+# config.py reads it at import; see the note there on why a .env file does
+# nothing until something loads it. Never committed.
+.env

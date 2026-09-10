@@ -1,0 +1,405 @@
+/* ============================================================================
+   SCANRESULT.CSS — the scan report page.
+
+   These rules derive from the approved mockup. Anything shared with other pages
+   (badges, buttons, the top bar, form fields) lives in base.css — this file holds
+   only what is specific to a report.
+   ========================================================================== */
+
+.target-url {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin-bottom: var(--space-1);
+  /* [General] A long URL must be allowed to break or it overflows the column.
+     `anywhere` rather than `break-all`: it prefers the existing break
+     opportunities (after a slash, a dot, a hyphen) and only breaks mid-token when
+     there is no alternative, so a normal URL still splits at sensible points. */
+  overflow-wrap: anywhere;
+}
+
+/* Ink, NOT navy — even though the spec assigns navy to headers. The mockup's own
+   <h1> declares no colour, so it inherits body ink, and this page is the one the
+   mockup defines exactly. Where the spec and the approved artefact disagree on
+   this page, the artefact wins. Landing headings, which the mockup never depicts,
+   do take navy.
+
+   The size and weight now come from base.css's .page-title. This rule only holds
+   the report-specific margin. */
+.page-title { margin: 0 0 var(--space-1); }
+
+.scan-meta {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin-bottom: var(--space-6);
+}
+
+/* ============================================================================
+   THE SUMMARY — a gauge and three counts.
+
+   REPLACES the four equal cards. See the long note at the top of ScoreGauge.jsx
+   for why: the score and the count of passed checks had identical visual weight,
+   so the page gave four equally-sized answers to a question that has one.
+
+   The layout is a two-column grid rather than a flex row so the dial keeps its
+   size while the counts absorb the leftover width — a flex row would let the dial
+   shrink on a narrow window and a squashed circle reads as a mistake.
+   ========================================================================== */
+
+.score-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  margin-bottom: var(--space-8);
+}
+
+/* --- The dial ------------------------------------------------------------- */
+
+.score-dial {
+  position: relative;   /* anchor for the centred number */
+  width: 108px;
+  height: 108px;
+  flex-shrink: 0;
+}
+
+.score-dial-svg { width: 100%; height: 100%; }
+
+.score-dial-track { stroke: var(--surface-sunken); }
+
+/* The arc's colour comes from the tone class ScoreGauge puts on .score-dial.
+   Severity colour on a summary is a documented departure from "findings only" —
+   the reasoning is in ScoreGauge.jsx. */
+.score-dial.passed   .score-dial-arc { stroke: var(--passed); }
+.score-dial.warning  .score-dial-arc { stroke: var(--warning); }
+.score-dial.critical .score-dial-arc { stroke: var(--critical); }
+
+/* [General] Transitioning stroke-dasharray animates the arc GROWING rather than
+   appearing. It matters here because the report arrives all at once after a
+   several-second wait: a score that sweeps into place is the page telling you it
+   finished, where a static ring just is. Reduced-motion collapses this to 1ms via
+   the duration token. */
+.score-dial-arc {
+  transition: stroke-dasharray var(--duration-slow) var(--ease-out);
+}
+
+/* [General] The absolute-centring recipe: inset:0 stretches the box over its
+   positioned parent, then flex centres the content inside it. More robust than
+   the translate(-50%,-50%) version because it does not depend on the content's
+   own dimensions. */
+.score-dial-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* The text sits inside a ring that is drawn from the element's edges, so
+     without this the number's own line box can push it off centre by a pixel. */
+  line-height: 1;
+  gap: 2px;
+}
+
+.score-dial-number {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-tight);
+  color: var(--ink);
+}
+
+.score-dial-total {
+  font-size: var(--text-2xs);
+  color: var(--muted-soft);
+}
+
+/* --- The label and counts ------------------------------------------------- */
+
+.score-detail { min-width: 0; }
+
+.score-dial-label {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--muted);
+  margin: 0 0 var(--space-3);
+}
+
+.score-counts {
+  display: grid;
+  /* auto-fit rather than repeat(3, 1fr) so the three counts become one column on
+     a narrow screen without a media query. */
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+}
+
+/* Each count keeps its tinted ground — this is the part of the old four-card row
+   that was right, and the tint is doing real work: three numbers in a row need
+   the colour to say which is which before you read the labels. */
+.score-count {
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid transparent;
+}
+.score-count.critical { background: var(--critical-bg); border-color: var(--critical-border); }
+.score-count.warning  { background: var(--warning-bg);  border-color: var(--warning-border); }
+.score-count.passed   { background: var(--passed-bg);   border-color: var(--passed-border); }
+
+.score-count-label {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  margin: 0 0 2px;
+}
+.score-count.critical .score-count-label { color: var(--critical-strong); }
+.score-count.warning  .score-count-label { color: var(--warning-strong); }
+.score-count.passed   .score-count-label { color: var(--passed-strong); }
+
+/* [General] <dd> carries a default 40px left margin from the browser. Resetting
+   it is required, and forgetting to is why definition lists so often look
+   mysteriously indented. */
+.score-count-value {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+.score-count.critical .score-count-value { color: var(--critical); }
+.score-count.warning  .score-count-value { color: var(--warning); }
+.score-count.passed   .score-count-value { color: var(--passed); }
+
+/* ============================================================================
+   FINDINGS LIST
+   ========================================================================== */
+
+.findings { border-top: 1px solid var(--border); }
+
+/* The row wrapper. The <button> is now only the header inside it — see the note
+   at the top of FindingCard.jsx for why that change was structural rather than
+   cosmetic. This element carries the border and the hover tint. */
+.finding {
+  border-bottom: 1px solid var(--border);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+.finding:hover { background: var(--surface-hover); }
+
+/* An open row keeps the tint and gains a navy edge, so which row you expanded is
+   obvious when three are open at once. [General] A left border rather than a full
+   one: it marks the row without redrawing its whole outline, and it lines up down
+   the list like a margin rule. */
+.finding.is-open {
+  background: var(--surface-hover);
+  box-shadow: inset 2px 0 0 var(--navy);
+}
+
+/* The clickable header. All the button-reset rules that used to be on .finding
+   live here now, since this is the element that is actually a <button>. */
+.finding-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-4) var(--space-2);
+  text-align: left;
+  background: none;
+  border: none;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+
+/* The title and description are spans in a flex column, because they sit inside a
+   <button> where <p> is invalid content. */
+.finding-body {
+  flex: 1;
+  min-width: 0;   /* [General] lets the text truncate instead of forcing width */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.finding-title {
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-snug);
+  color: var(--ink);
+}
+.finding-desc {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: var(--leading-snug);
+}
+
+/* The chevron. Rotates on open rather than swapping to a second icon, so the
+   transition carries the state change. */
+.finding-chevron {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--muted-soft);
+  transition: transform var(--duration-base) var(--ease-out);
+}
+.finding.is-open .finding-chevron { transform: rotate(180deg); }
+
+/* ============================================================================
+   EXPANDED DETAIL PANEL
+   ========================================================================== */
+
+.finding-detail {
+  /* The left indent lines the text up under the title, past the icon. */
+  padding: 0 var(--space-2) var(--space-4) var(--space-8);
+  max-width: 640px;
+}
+
+/* [General] The panel is added to the DOM rather than revealed, so it can be
+   animated in with a keyframe. A height transition is impossible here — the
+   panel's height is unknown until it renders, and `height: auto` cannot be
+   transitioned — so this fades and slides a short distance instead, which reads
+   as the same gesture and needs no measurement. */
+@keyframes finding-reveal {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.finding-detail {
+  animation: finding-reveal var(--duration-base) var(--ease-out);
+}
+
+.detail-label {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--muted);
+  margin: var(--space-4) 0 var(--space-1);
+}
+
+.detail-text {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);   /* full paragraphs — generous leading */
+  color: var(--ink-secondary);
+  margin: 0;
+
+  /* Backend explanations may contain real newlines — headers_check lists one
+     missing header per line. pre-line keeps those breaks while still collapsing
+     runs of spaces and wrapping long lines normally, so single-paragraph findings
+     look exactly as they did. `pre` would NOT do: it would also stop wrapping and
+     push long sentences off the card. */
+  white-space: pre-line;
+
+  /* An explanation can contain a bare URL from the scanned site. */
+  overflow-wrap: anywhere;
+}
+
+.detail-check {
+  font-size: var(--text-2xs);
+  color: var(--muted-soft);
+  margin: var(--space-4) 0 0;
+}
+
+/* ============================================================================
+   ACTIONS
+   ========================================================================== */
+
+.report-actions {
+  margin-top: var(--space-6);
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;    /* stack rather than overflow on a narrow screen */
+  align-items: center;
+}
+
+/* Quiet secondary route to the shareable report — a text link, so it cannot
+   compete with the one primary button the mockup shows. */
+.report-share-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--navy);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm);
+}
+.report-share-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* ============================================================================
+   NARROW SCREENS
+   ========================================================================== */
+
+@media (max-width: 560px) {
+  /* The dial stacks above the counts. A 108px circle beside three count cards
+     leaves each card about 60px wide on a phone, which truncates "Critical". */
+  .score-summary {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    gap: var(--space-4);
+  }
+  .score-detail { width: 100%; }
+  .score-counts { grid-template-columns: repeat(3, 1fr); }
+
+  .finding-head { flex-wrap: wrap; }
+  .finding-detail { padding-left: var(--space-2); }
+}
+
+/* ============================================================================
+   THE REPORT SKELETON
+
+   ReportSkeleton.jsx reuses .score-summary, .findings and .finding so the
+   placeholder inherits the real layout. These rules only cover the few shapes
+   that have no real counterpart to borrow from.
+   ========================================================================== */
+
+/* The skeleton's summary card has no content of its own to give it height, so
+   without this it would collapse to its padding and then grow when the real card
+   arrives — the exact jump the skeleton exists to prevent. */
+.report-skeleton-summary { min-height: 148px; }
+
+/* A RING, not a disc. [General] The trick is a transparent background with a
+   thick border: the skeleton shimmer is a background-image, which paints inside
+   the border box, so the border punches the hole. Matching the dial's 8/108
+   stroke ratio means the real dial replaces this without the shape changing. */
+.report-skeleton-dial {
+  border-radius: var(--radius-full);
+  border: 8px solid var(--surface-sunken);
+  background: none;
+}
+
+/* Stands in for one tinted count block. Height matches the real one: label,
+   4px gap, value. */
+.report-skeleton-count {
+  display: block;
+  height: 56px;
+  border-radius: var(--radius-lg);
+}
+
+/* The severity icon's 18px square and the badge's pill. Both fixed rather than
+   proportional, because that is what they are in the real row. */
+.report-skeleton-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+.report-skeleton-badge {
+  display: block;
+  width: 62px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+/* The skeleton's rows borrow .finding for their dividers and .finding-head for
+   its padding, but they are not interactive — so the hover tint and the pointer
+   cursor are switched back off. A plain class on the row rather than a
+   `:has(.report-skeleton-icon)` selector: same result, and the intent is legible
+   from the markup instead of inferred from what happens to be inside it. */
+.finding-skeleton:hover { background: none; }
+.finding-skeleton .finding-head { cursor: default; }

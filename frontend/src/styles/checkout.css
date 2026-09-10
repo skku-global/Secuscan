@@ -1,0 +1,424 @@
+/* ============================================================================
+   CHECKOUT.CSS — the payment page at "/checkout/:planId".
+
+   WHY THIS FILE ARRIVED LATE, and it is worth recording because the failure mode
+   is invisible: Checkout.jsx was written complete, with 26 `co-*` class names on
+   its markup, but no stylesheet ever existed and nothing imported one. A missing
+   CSS file breaks no build and throws no error — the page simply renders as
+   unstyled stacked text, and because the page was unrouted until it was wired up,
+   nobody had ever seen it render. The receipt's label/value rows reading as a flat
+   list of words is what gave it away. Classes are not a contract the bundler
+   checks; only a browser does.
+
+   SHARES THE FORM CLASSES WITH auth.css (`.auth-form`, `.field`, `.field-label`,
+   `.input`, `.auth-input`, `.auth-error`) for the same reason settings.css does:
+   the card form is a form like any other, and a second copy of the input rules is
+   how two forms start looking subtly different. This file holds only the checkout
+   layout — the two-column split, the summary panel, and the receipt.
+
+   NO NEW COLOURS AND NO NEW SPACING VALUES. Every value is a token from
+   tokens.css, so the page follows the three-state theme (system / navy / white)
+   without a second thought. A literal hex here is an element that ignores the
+   switch.
+   ========================================================================== */
+
+/* ----------------------------------------------------------------------------
+   THE TWO-COLUMN SPLIT
+
+   Summary and form side by side on a wide screen, stacked on a narrow one.
+   -------------------------------------------------------------------------- */
+
+.co-layout {
+  display: grid;
+  /* ONE COLUMN IS THE BASE, and the two-column rule is the media query below.
+     Mobile-first here rather than a max-width override, because the stacked case
+     is the one that must be right without any query applying at all. */
+  grid-template-columns: 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+@media (min-width: 880px) {
+  .co-layout {
+    /* THE FORM GETS THE WIDER COLUMN. The summary is five short facts; the form
+       is where the work happens, and a card number field cramped into half the
+       page invites the mis-typing this page can least afford.
+
+       THE WIDER TRACK IS FIRST, WHICH LOOKS BACKWARDS AND IS NOT: `order` below
+       moves the form into the FIRST track, so the first track is the one that has
+       to be wide. Sizing the second track instead — the intuitive reading, since
+       the form is second in the markup — hands the extra width to the summary and
+       squeezes the card fields, which is the opposite of the intent. Grid tracks
+       are positions, not elements. */
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  }
+
+  /* WHY THE ORDER IS FLIPPED IN CSS RATHER THAN IN THE MARKUP: Checkout.jsx puts
+     the summary FIRST in source order on purpose — "what am I buying" should be
+     read before "type your card number" by a screen reader and by the tab key.
+     Visually the summary belongs on the right, beside the form it describes. The
+     two orders are different requirements and this is the one place they are
+     reconciled. Do not "tidy" this by reordering the JSX. */
+  .co-summary { order: 2; }
+  .co-form-card { order: 1; }
+
+  /* The summary is short, so it should not stretch to the form's height and leave
+     a tall empty panel next to a filled one. */
+  .co-summary { align-self: start; }
+}
+
+/* ----------------------------------------------------------------------------
+   THE CARDS
+
+   `class="card co-card"` — base.css supplies surface, border and radius; this adds
+   only the page-specific padding and rhythm.
+   -------------------------------------------------------------------------- */
+
+.co-card {
+  padding: var(--space-5);
+}
+
+.co-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+  letter-spacing: var(--tracking-snug);
+}
+
+.co-heading svg { color: var(--muted-soft); flex-shrink: 0; }
+
+.co-text {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--ink-secondary);
+}
+
+.co-text:last-child { margin-bottom: 0; }
+
+/* ----------------------------------------------------------------------------
+   THE PRICE
+
+   The one number on the page that has to be unmissable, since it is what the
+   reader is agreeing to.
+   -------------------------------------------------------------------------- */
+
+.co-price {
+  display: flex;
+  /* Baseline, not centre: the interval is a small word sitting beside a large
+     number, and centring it against a 3xl figure floats it visibly too high. */
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.co-amount {
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+  letter-spacing: var(--tracking-tight);
+  /* Tabular figures so the amount here and the same amount on the receipt and in
+     Settings do not shift width between renders. */
+  font-variant-numeric: tabular-nums;
+}
+
+.co-interval {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.co-plan-name {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink);
+}
+
+/* ----------------------------------------------------------------------------
+   THE LIMITS
+
+   The two enforced numbers, from the server's plan rather than marketing copy.
+   -------------------------------------------------------------------------- */
+
+.co-limits {
+  /* [General] A <ul> carries a browser-default bullet and a left indent; both go,
+     because the ticks are the list markers here. */
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.co-limits li {
+  display: flex;
+  /* flex-start, not centre: a limit that wraps to two lines should keep its tick
+     beside the FIRST line rather than floating to the middle of the block. */
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+}
+
+.co-limits svg {
+  color: var(--passed);
+  flex-shrink: 0;
+  /* Nudged down to sit on the text's baseline rather than its box top. */
+  margin-top: 0.2em;
+}
+
+/* ----------------------------------------------------------------------------
+   THE NOTICES
+
+   Three of them, and they are deliberately not the same weight: the demo notice
+   is the loudest thing on the form, because the page must never pass for a real
+   payment form.
+   -------------------------------------------------------------------------- */
+
+/* THE HONESTY NOTICE. Warning-toned rather than quiet — see the header of
+   Checkout.jsx. This is the paragraph that stops the form being a lie, so it gets
+   a filled background and sits above the first field, not below the button. */
+.co-demo {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  color: var(--ink-secondary);
+}
+
+.co-demo svg { color: var(--warning-strong); flex-shrink: 0; margin-top: 0.15em; }
+.co-demo strong { color: var(--ink); font-weight: var(--weight-semibold); }
+
+/* The "already on this plan" note: informational, so quieter than the above. */
+.co-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  color: var(--ink-secondary);
+}
+
+.co-note svg { color: var(--muted-soft); flex-shrink: 0; margin-top: 0.15em; }
+
+/* The small print under the pay button. */
+.co-fine {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-2xs);
+  line-height: var(--leading-normal);
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ----------------------------------------------------------------------------
+   THE CARD FIELDS
+
+   Number, expiry and CVC are digits the reader is copying off a physical card, so
+   they get the mono face — it makes a transposed digit visible.
+   -------------------------------------------------------------------------- */
+
+.co-mono {
+  font-family: var(--font-mono);
+  /* Slightly wider tracking than prose: grouped digits are read in blocks of
+     four, and tight mono runs them together. */
+  letter-spacing: var(--tracking-wide);
+}
+
+/* Expiry and CVC share a row — they are short and belong together on the card
+   itself, so splitting them across two full-width rows reads as more work than it
+   is. */
+.co-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+/* ----------------------------------------------------------------------------
+   THE RECEIPT
+
+   The success state, after the plan has been granted.
+   -------------------------------------------------------------------------- */
+
+.co-receipt {
+  /* Narrower than the two-column layout above it. The receipt is a short record
+     and reads better as a column than stretched across the page. */
+  max-width: var(--width-form);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5);
+}
+
+.co-tick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-10);
+  height: var(--space-10);
+  margin: 0 auto var(--space-4);
+  border-radius: var(--radius-full);
+  background: var(--passed-bg);
+  color: var(--passed-strong);
+}
+
+.co-tick svg { flex-shrink: 0; }
+
+/* SAME SHAPE AS `.set-fact` IN settings.css, and deliberately so: hairline-
+   separated label/value rows read as one record, which is what a receipt is. Not
+   `.set-fact` itself, because that class belongs to the settings page's own card
+   and importing settings.css here to borrow one rule would drag the whole account
+   layout with it. Two short blocks beat one shared file in the wrong place. */
+.co-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: var(--space-5) 0;
+}
+
+.co-fact {
+  display: grid;
+  /* A fixed label column so the values line up — what makes this read as a record
+     rather than as prose. `minmax(0, 1fr)` guards against the long reference id
+     widening the grid instead of wrapping. [General] A bare `1fr` will not shrink
+     below its content. */
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: baseline;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* No rule under the last row: it would sit just above the card's own border and
+   read as a doubled line. */
+.co-fact:last-child { border-bottom: none; padding-bottom: 0; }
+.co-fact:first-child { padding-top: 0; }
+
+.co-fact dt {
+  /* [General] A <dt> is a block by default and a <dd> carries a browser-default
+     indent; the grid overrides the first and this resets the second. Without the
+     margin reset the values sit 40px right of where the grid put them. */
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.co-fact dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  /* The reference id has no spaces, so it cannot wrap at a word boundary and will
+     otherwise push the card wider than the viewport on a phone. [General] */
+  overflow-wrap: anywhere;
+}
+
+.co-code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+}
+
+.co-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* ----------------------------------------------------------------------------
+   THE DEAD ENDS
+
+   Loading, and the "back to all plans" line shared by every failure state.
+   -------------------------------------------------------------------------- */
+
+.co-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-8) 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.co-spin {
+  color: var(--muted-soft);
+  flex-shrink: 0;
+  animation: co-spin var(--duration-slow) linear infinite;
+}
+
+@keyframes co-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* [Accessibility] A continuous spin is exactly the kind of motion that triggers
+   discomfort for a reader with vestibular sensitivity, and this one has no end.
+   The spinner still communicates "working" as a static icon beside its label. */
+@media (prefers-reduced-motion: reduce) {
+  .co-spin { animation: none; }
+}
+
+.co-back {
+  margin: var(--space-5) 0 0;
+  font-size: var(--text-sm);
+}
+
+.co-back a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* `.link-quiet` LIVES HERE BECAUSE CHECKOUT IS ITS ONLY USER — and it was as
+   undefined as the `co-*` classes were. base.css sets every anchor to
+   `color: inherit; text-decoration: none`, which is right as a reset but means an
+   unstyled link is indistinguishable from the sentence around it. This back-link
+   was therefore invisible AS A LINK: readable, but nothing said it could be
+   clicked. Same treatment as `.field-aside-link` in auth.css — quiet until hover.
+   If a second page ever wants it, move it to base.css rather than copying it. */
+.link-quiet {
+  color: var(--muted);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+
+.link-quiet:hover {
+  color: var(--navy);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.co-back svg { flex-shrink: 0; }
+
+/* ----------------------------------------------------------------------------
+   NARROW SCREENS
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 520px) {
+  .co-card { padding: var(--space-4); }
+
+  /* The label column goes, and the value sits under its label. At this width
+     130px of label leaves too little for the value beside it. */
+  .co-fact {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+
+  /* Full-width buttons, because two side-by-side buttons at this width give each
+     a tap target narrower than a thumb. */
+  .co-actions { flex-direction: column; }
+  .co-actions > * { width: 100%; }
+}

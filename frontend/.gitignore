@@ -1,0 +1,8 @@
+node_modules
+dist
+.DS_Store
+*.local
+
+# Screenshots produced by the browser scripts in tests/. They are evidence you
+# read once and regenerate, not source — see the header of tests/_shots.mjs.
+tests/screenshots

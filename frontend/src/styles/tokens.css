@@ -1,0 +1,460 @@
+/* ============================================================================
+   TOKENS.CSS — the design system's vocabulary. Nothing here draws anything.
+
+   WHY THIS FILE EXISTS, SEPARATELY FROM BASE.CSS
+   base.css used to hold both the tokens and the component rules. That works
+   until you want a second theme: a dark palette has to redefine every colour,
+   and doing that in the same file as the rules means the file no longer has one
+   job. Tokens are DATA — names for values. base.css is BEHAVIOUR — what those
+   values are used for. Splitting them is what makes the dark theme at the bottom
+   of this file a 40-line block rather than a second copy of the stylesheet.
+
+   THE ORIGINAL PALETTE IS PRESERVED. Every colour the approved mockup specified
+   is still here under its original name (--bg, --ink, --navy, --muted, --border
+   and the six severity values), and they still resolve to the same hex codes in
+   the light theme. Nothing that referenced them had to change. What is new is
+   the structure AROUND them: a scale where there was a single value, so that
+   "slightly lighter than the border" stops being an ad-hoc hex code invented at
+   the call site.
+
+   [General] Design tokens are a universal frontend pattern. Everything in this
+   file would work identically in Vue, Svelte or a plain HTML page.
+   ========================================================================== */
+
+:root {
+  /* ==========================================================================
+     TYPE
+     ====================================================================== */
+
+  /* THE FALLBACK STACK IS THE POINT HERE. The old declaration was
+     `'IBM Plex Sans', sans-serif`, and that second entry is not a fallback so
+     much as a shrug — it resolves to whatever the browser's default sans is,
+     which on Windows is Arial. So for the first paint of every page load, and
+     forever if Google Fonts is blocked (corporate proxies routinely do), the
+     app rendered in a face with different metrics and a different feel.
+     Naming the system UI stack instead means the fallback is the platform's own
+     text face, which is metrically much closer and never looks like a mistake. */
+  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    system-ui, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', 'Cascadia Mono',
+    'Segoe UI Mono', Menlo, Consolas, monospace;
+
+  /* A MODULAR SCALE, roughly 1.2x per step, rounded to whole pixels. The point
+     of a scale is not the ratio - it is that there are SEVEN sizes and not
+     nineteen. Every ad-hoc `font-size: 15px` invented at a call site is a size
+     nobody chose deliberately, and enough of them is what makes an interface
+     look assembled rather than designed. */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 27px;
+  --text-3xl: 34px;
+
+  /* Three weights, matching exactly what index.html loads. Asking for 700 when
+     the linked stylesheet only fetches 400/500/600 gets a SYNTHETIC bold -
+     the browser algorithmically smearing the 600 - which looks subtly wrong and
+     is the most common cause of "why does this font look muddy". */
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* Line heights are unitless on purpose: a unitless value multiplies the
+     element's OWN font-size, so it stays correct when inherited by a child at a
+     different size. A value in px or em does not, and that is the classic cause
+     of cramped nested text. [General] */
+  --leading-tight: 1.25;
+  --leading-snug: 1.4;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.65;
+
+  /* Optical letter-spacing. Large type needs tightening and small caps-y labels
+     need opening up - the same tracking at every size is a giveaway that nobody
+     looked. Negative values only ever go on display sizes. */
+  --tracking-tight: -0.018em;
+  --tracking-snug: -0.008em;
+  --tracking-wide: 0.02em;
+  --tracking-caps: 0.06em;
+
+  /* ==========================================================================
+     SPACING — a 4px base grid.
+
+     Not because 4 is magic, but because a shared step size is what makes
+     unrelated components line up without anyone coordinating. Two developers
+     each picking "about 14 pixels" produce 14 and 15; two developers each
+     reaching for --space-4 produce the same edge.
+     ====================================================================== */
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  /* ==========================================================================
+     RADII
+     ====================================================================== */
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 14px;
+  --radius-full: 999px;
+
+  /* ==========================================================================
+     NEUTRALS
+
+     The five original values are the anchors; the rest fill in the gaps that
+     were previously improvised. #FAFBFC and #EDEFF3 both already existed as
+     one-off hex codes inside landing.css and dashboard.css - they are named here
+     instead, which is the difference between a palette and a pile of colours.
+     ====================================================================== */
+
+  --bg: #F7F8FA;              /* page background - paper grey (original) */
+  --surface: #FFFFFF;         /* card and panel fill */
+  --surface-raised: #FFFFFF;  /* sits above a tinted surface */
+  --surface-sunken: #F1F3F7;  /* wells: meter tracks, code blocks */
+  --surface-hover: #FAFBFC;   /* was an inline hex in landing.css */
+  --surface-active: #F4F6F9;
+
+  --ink: #12151C;             /* primary text - near-black (original) */
+  --ink-secondary: #3A4250;   /* body copy that is not a heading */
+  --muted: #5B6472;           /* secondary text, labels (original) */
+  --muted-soft: #8B94A3;      /* the quietest legible grey */
+  --placeholder: #9AA2AE;     /* was an inline hex in landing.css */
+
+  --border: #E1E4EA;          /* hairline dividers (original) */
+  --border-strong: #CDD3DD;   /* a divider that needs to be seen */
+  --border-subtle: #ECEEF2;   /* barely-there separation inside a card */
+
+  --navy: #1B2A4A;            /* brand / primary buttons (original) */
+  --navy-hover: #24365C;      /* NOT opacity - see .btn-primary in base.css */
+  --navy-active: #16233D;
+  --navy-tint: #E7ECF5;       /* was an inline hex in landing.css */
+  --navy-tint-soft: #F0F4FA;
+
+  /* ==========================================================================
+     THE BAND — the top bar's own surface, named by ROLE rather than by colour.
+
+     WHY THESE EXIST AND WHY THEY ARE NOT JUST --navy: the top bar is the only
+     filled band in the app, so everything sitting on it — wordmark, shield, page
+     meta, sign-out — needs a colour chosen against that fill rather than against
+     the page. Those colours were five hardcoded `#fff` and
+     `rgba(255, 255, 255, 0.72)` values in base.css, and a hardcoded colour is
+     precisely what a theme cannot reach: the white theme needs the band to be
+     white with DARK text on it, and no redefinition of --navy can produce that.
+
+     So the roles get the names — the band, the ink on the band, the quieter ink,
+     the edge that defines it once the fill no longer does. That is what makes the
+     white theme at the bottom of this file a short block rather than a second
+     copy of the top-bar rules. [General] This is the semantic-token idea: name
+     what a colour is FOR, not what it looks like.
+
+     [General] The forward reference on the last line is fine — custom properties
+     resolve where they are USED, not where they are declared, so a token may
+     point at one defined further down the file.
+     ====================================================================== */
+
+  --band: var(--navy);
+  --band-ink: #FFFFFF;
+  --band-ink-muted: rgba(255, 255, 255, 0.72);
+  /* Transparent while the band is filled: the fill already separates it from the
+     page, and a visible line on navy would read as a seam. The white theme is the
+     case that needs a real one. */
+  --band-border: transparent;
+  --band-focus-ring: var(--focus-ring-inverse);
+
+  /* ==========================================================================
+     SEVERITY
+
+     The three original pairs, plus a border for each. The spec reserves these
+     for findings alone - never for billing state, never for decoration. That
+     rule is what keeps a red pill meaningful when one appears.
+     ====================================================================== */
+
+  --critical: #C1443D;
+  --critical-bg: #FBEAE9;
+  --critical-border: #F0CFCD;
+  --critical-strong: #A6362F;
+
+  --warning: #B8842A;
+  --warning-bg: #FBF3E4;
+  --warning-border: #EEDFC0;
+  --warning-strong: #9A6D1E;
+
+  --passed: #2F7D5C;
+  --passed-bg: #E9F4EF;
+  --passed-border: #C9E3D8;
+  --passed-strong: #266649;
+
+  /* ==========================================================================
+     ELEVATION
+
+     Clinical Ledger's rule is "hairline borders and plain dividers, NO shadows",
+     and these tokens do not overturn it - cards still carry a border and no
+     shadow. What they exist for is the narrow set of surfaces that genuinely
+     FLOAT above the page and must be readable as floating: the sticky top bar
+     once it detaches from the top of the document, and nothing else so far.
+
+     They are deliberately weak. A shadow you can point at is too strong for this
+     system; these read as a slight darkening of the air under an edge.
+     ====================================================================== */
+
+  --shadow-sm: 0 1px 2px rgba(18, 21, 28, 0.04);
+  --shadow-md: 0 1px 3px rgba(18, 21, 28, 0.06), 0 4px 12px rgba(18, 21, 28, 0.04);
+
+  /* A ring, used for focus. Kept as a token so every focusable thing in the app
+     is unmistakably the same ring, which is what lets a keyboard user learn it
+     once. */
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--navy);
+  --focus-ring-inverse: 0 0 0 2px var(--navy), 0 0 0 4px rgba(255, 255, 255, 0.9);
+
+  /* ==========================================================================
+     MOTION
+
+     Two durations and two easings, and that is the whole budget. The easing
+     matters more than the duration: a linear or ease-in-out transition on a
+     colour reads as sluggish, while a curve that starts fast and settles reads
+     as responsive at the same number of milliseconds.
+     ====================================================================== */
+
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 420ms;
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
+
+  /* ==========================================================================
+     LAYOUT
+     ====================================================================== */
+
+  --width-prose: 720px;    /* the original .container width */
+  --width-wide: 1040px;    /* the original .container-wide width */
+  --width-form: 380px;
+  --page-gutter: var(--space-5);
+}
+
+/* ============================================================================
+   DARK THEME
+
+   WHY THIS EXISTS: a security tool gets read at 2am by someone who has just been
+   paged, and on a screen next to a terminal. Beyond that, a product that ignores
+   the operating-system setting reads as unfinished in 2026 - the light flash when
+   opening it in a dark environment is the single most noticeable rough edge left
+   in the app.
+
+   [General] prefers-color-scheme reads the OS-level setting. No JavaScript, no
+   toggle, no stored preference - which is deliberate: the OS already knows the
+   answer, and asking the user again is a worse experience than obeying them.
+
+   HOW THIS IS BUILT, AND WHY IT IS ONLY COLOURS: every rule in every other
+   stylesheet references these variables and none of them mention a hex code, so
+   redefining the names here re-themes the entire app. If a rule ever needs a
+   dark-mode override of its own, that rule has a hardcoded colour and the fix is
+   to tokenise it rather than to add an override.
+
+   THE COLOURS ARE NOT INVERTED. A true inversion produces glare: pure white text
+   on pure black vibrates, and the severity colours become fluorescent. Instead
+   the surfaces are lifted off black to a soft slate, text stops short of white,
+   and each severity colour is LIGHTENED and DESATURATED so it stays legible on a
+   dark ground without shouting. That last step is the one people skip, and it is
+   why so many dark modes have a neon-red error state.
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+  /* THE `:not([data-theme])` GUARD IS WHAT MAKES A THEME PICKER POSSIBLE.
+     Without it this block would outrank an explicit choice on a dark OS — someone
+     selecting White would still get the dark palette and would reasonably conclude
+     the control is broken. The selector reads "only when nobody has chosen", and
+     theme.js expresses "system" by REMOVING the attribute rather than setting it
+     to "system", so the two halves cannot drift apart. See lib/theme.js. */
+  :root:not([data-theme]) {
+    --bg: #0F1218;
+    --surface: #171B23;
+    --surface-raised: #1D222C;
+    --surface-sunken: #12161D;
+    --surface-hover: #1E2430;
+    --surface-active: #232936;
+
+    --ink: #EDEFF3;
+    --ink-secondary: #C3C9D4;
+    --muted: #939CAB;
+    --muted-soft: #6C7482;
+    --placeholder: #5E6673;
+
+    --border: #262C38;
+    --border-strong: #38404F;
+    --border-subtle: #1F2530;
+
+    /* Navy cannot stay #1B2A4A here: it is darker than the page it would sit on,
+       so a navy button would read as a hole rather than as the primary action.
+       Lifted to a mid slate-blue that keeps the brand relationship while having
+       somewhere to go on hover. */
+    --navy: #4C6DA8;
+    --navy-hover: #5C7FBC;
+    --navy-active: #3F5C90;
+    --navy-tint: #1C2637;
+    --navy-tint-soft: #171F2C;
+
+    --critical: #E8908A;
+    --critical-bg: #2E1B1A;
+    --critical-border: #4A2725;
+    --critical-strong: #F0A9A4;
+
+    --warning: #DFB569;
+    --warning-bg: #2B2317;
+    --warning-border: #453722;
+    --warning-strong: #E9C685;
+
+    --passed: #6FC298;
+    --passed-bg: #17281F;
+    --passed-border: #24402F;
+    --passed-strong: #8AD0AC;
+
+    /* Shadows barely register on a dark ground - depth there comes from a
+       LIGHTER surface, not a darker shadow, which is why --surface-raised exists.
+       Kept non-zero and stronger so the sticky bar still separates. */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.32);
+
+    --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px #7FA0D8;
+
+    /* The band stays navy here for free: --band points at --navy, which is
+       redefined above. What does NOT survive that move is the 72% ink — white at
+       72% on the lifted slate-blue lands near 2.6:1, which is not readable text.
+       Held close to full white instead; the band's own fill is what keeps the
+       meta from competing with the wordmark, so the alpha was never load-bearing. */
+    --band-ink-muted: rgba(255, 255, 255, 0.86);
+  }
+
+  /* [General] Tells the browser its own UI - scrollbars, form controls, the
+     canvas behind the page - to use dark variants. Without it you get a white
+     scrollbar down the side of a dark page, and text inputs keep a light chrome.
+     One declaration, and it is the difference between a themed page and a themed
+     app.
+
+     Carries the same guard as the palette above — an explicit light choice must
+     not leave the scrollbars and form controls dark. */
+  :root:not([data-theme]) {
+    color-scheme: dark;
+  }
+}
+
+/* ============================================================================
+   THE PINNED THEMES — an explicit choice, set as data-theme on <html>.
+
+   WHY THESE EXIST: the app answered the OS and nothing else, which is the right
+   default and a poor total. Someone who prefers a plain white page has no way to
+   ask for one, and someone on a dark-set laptop who wants the light palette for a
+   screenshot has no way to ask for that either. Two named palettes and a control
+   in the top bar fix both. See components/ThemeToggle.jsx and lib/theme.js.
+
+   NOTE WHAT IS ABSENT: there is no `[data-theme="navy"]` block. The navy theme IS
+   the palette in :root at the top of this file, and the guard added to the dark
+   block above means the mere PRESENCE of the attribute already stops the OS from
+   overriding it. Writing an empty block, or worse re-stating the light values
+   inside one, would create a second copy of the default palette to keep in sync.
+   Pinning navy costs zero lines, which is the sign the structure is right.
+   ========================================================================== */
+
+/* ============================================================================
+   WHITE THEME
+
+   The paper-grey page (#F7F8FA) goes to true white and the navy band drains to
+   white with dark ink. Two consequences are worth spelling out, because both are
+   the kind of thing that quietly breaks when a page background changes:
+
+   1. A CARD IS NOW WHITE ON WHITE. --surface was already #FFFFFF, so on the grey
+      page a card was defined by its FILL and its hairline border was a refinement.
+      On a white page the border is the only thing left, which is why the three
+      border tokens step up here. The alternative — a shadow — is not available:
+      Clinical Ledger's rule is hairlines and no shadows, and the sticky band is
+      the one sanctioned exception.
+
+   2. --surface-hover HAS TO INVERT. landing.css says of it "stays clearly lighter
+      than the page", which was true against grey and is impossible against white:
+      nothing is lighter than #FFFFFF. So the hover states here are a step DARKER
+      than the page. The token name still describes its role — the surface under
+      the cursor — which is exactly why the rules using it needed no change.
+   ========================================================================== */
+
+:root[data-theme='white'] {
+  --bg: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface-raised: #FFFFFF;
+  /* Wells still have to read as recessed, and on white that means a touch more
+     contrast than the grey theme needed, not less. */
+  --surface-sunken: #F3F5F8;
+  --surface-hover: #F7F9FB;   /* darker than the page — see note 2 above */
+  --surface-active: #EFF2F6;
+
+  /* One step stronger than the grey theme's #E1E4EA / #CDD3DD / #ECEEF2. Not more
+     than one step: a card outline that announces itself turns a quiet page into a
+     wireframe, and the point of the white theme is calm. */
+  --border: #DDE1E8;
+  --border-strong: #C6CCD7;
+  --border-subtle: #E9ECF1;
+
+  /* THE BAND, EMPTIED OUT. Everything on it now takes its colour from the page
+     palette instead of from white, and the bottom border does the separating that
+     the navy fill used to do — without it the band's only edge would be the sticky
+     shadow, which vanishes the moment the page is scrolled to the top.
+
+     The focus ring flips back to the standard one for the same reason: the inverse
+     ring is white-on-navy, and white on a white band is an invisible focus state. */
+  --band: #FFFFFF;
+  --band-ink: var(--ink);
+  --band-ink-muted: var(--muted);
+  --band-border: var(--border);
+  --band-focus-ring: var(--focus-ring);
+}
+
+/* ============================================================================
+   REDUCED MOTION
+
+   WHY THIS EXISTS: for people with vestibular disorders, movement on a screen
+   can cause genuine nausea and dizziness - this is a medical accessibility need,
+   not a preference about taste. The OS exposes the setting; honouring it is one
+   media query.
+
+   NOTE WHAT THIS DOES NOT DO: it does not set `transition: none`. Removing
+   transitions entirely makes state changes snap, which loses the feedback that a
+   hover or a focus actually registered. Collapsing them to 1ms keeps every
+   transition functionally instant while leaving the machinery - and any
+   transitionend handler - intact. Distance-based animation is what causes the
+   problem, and the tokens below neutralise it.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 1ms;
+    --duration-base: 1ms;
+    --duration-slow: 1ms;
+    /* Linear, because an overshooting spring curve is exactly the kind of motion
+       being asked about - and at 1ms the curve is academic anyway. */
+    --ease-out: linear;
+    --ease-spring: linear;
+  }
+
+  /* The belt-and-braces sweep. A `@keyframes` animation ignores the duration
+     tokens above unless it happens to reference them, so anything animating is
+     stopped here as well. `!important` is justified in exactly this case: an
+     accessibility override must beat author styles it cannot know about. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,35 @@
+fastapi>=0.115          # the web framework — routing, validation, JSON, auto docs
+uvicorn[standard]>=0.30 # the ASGI server that actually runs FastAPI
+httpx>=0.27             # async HTTP client — how a check reaches the target site
+pymongo>=4.9            # MongoDB driver. 4.9+ ships AsyncMongoClient, which replaces
+                        # the old, now end-of-life `motor` package. Do not add motor.
+argon2-cffi>=23.1        # Argon2id password hashing. OWASP first choice; a
+                         # general-purpose hash like SHA-256 is the wrong tool
+                         # here because it is fast, and fast is the attacker's ally.
+
+# --- Added 2026-09-09. ------------------------------------------------------
+# These four were imported but never declared: they were installed by hand on the
+# development machine, so everything worked here and nothing worked on a fresh
+# checkout. The failure is an ImportError at startup, which names the module but
+# not the reason it is absent - so the rule is that a direct `import` of a
+# third-party package earns a line in this file at the same time, not later.
+python-dotenv>=1.0      # config.py imports this at module scope to read backend/.env.
+                        # Nothing starts without it, and a .env file on disk does
+                        # nothing at all until something loads it - see config.py.
+google-auth>=2.57       # Google's own ID-token verifier. NOT a general JWT library:
+                        # google_auth.py leans on it to fetch Google's public keys and
+                        # check the signature, which is the step that separates
+                        # "the token says" from "Google says".
+pyotp>=2.9              # RFC 6238 TOTP, for two-factor sign-in.
+segno>=1.6              # QR rendering for TOTP enrolment, done in-process so the
+                        # shared secret never leaves this server. See the import
+                        # comments in auth.py for why segno over `qrcode`.
+
+# NOT dependencies, and worth recording so nobody adds them:
+#   resend    - the email provider is reached over its HTTP API with httpx, so the
+#               name is configuration (EMAIL_PROVIDER), not a package. See mailer.py.
+#   pydantic  - imported directly by main.py, but FastAPI depends on it, so it
+#               arrives pinned to a compatible version. Declaring it here would add
+#               a second opinion about which version is right.
+#   bs4       - discovery.py parses with the standard library on purpose; see the
+#               note there on the cost of a parser a deployment has to patch.

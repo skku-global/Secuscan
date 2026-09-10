@@ -1,0 +1,236 @@
+/* ============================================================================
+   DASHBOARD.CSS — shared by the Dashboard and History pages.
+
+   Both render the same scan rows, so both import this one file rather than
+   keeping two copies of near-identical rules in sync.
+
+   WHAT CHANGED HERE: this file and report.css were the last two still carrying
+   raw values — `0.5px` borders, bare pixel font sizes, and two inline colours
+   (`#EDEFF3` for the tier pill, `rgba(0,0,0,0.015)` for the row hover). The
+   inline colours are the reason these two pages did not theme: a black-based
+   translucency over a dark surface is invisible, and a light grey pill on a dark
+   ground is a bright rectangle. Both are tokens now, so dark mode needs no
+   override here — which is the test of whether the token layer is actually
+   carrying the theme.
+   ========================================================================== */
+
+.dash-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+}
+
+/* `.dash-sub` was here and was base.css's `.page-sub` with a different name.
+   Both pages use the shared one now — the third copy of a subtitle style is
+   where a design system quietly stops being one. */
+
+/* ============================================================================
+   SCAN ROWS
+   ========================================================================== */
+
+.scan-list {
+  border-top: 1px solid var(--border);
+  margin-bottom: var(--space-5);
+}
+
+.scan-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-2);
+  border-bottom: 1px solid var(--border);
+  /* [General] The hover has to be a transition, not a jump: a list of rows is
+     the one place a user sweeps the pointer across several targets in a second,
+     and an instant flash on each one reads as flicker. */
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+/* Was rgba(0,0,0,0.015). A black wash is invisible on a dark surface, so this
+   row had no hover state at all in dark mode. --surface-hover is defined per
+   theme and lands the right side of the background in both. */
+.scan-row:hover { background: var(--surface-hover); }
+
+/* [General] The row keeps its own inset outline rather than taking the app-wide
+   ring from base.css. WHY: the rows are edge-to-edge and stacked with no gap, so
+   an outward 4px ring would be clipped by the neighbouring row above and below
+   and would render as two stubs. An inset outline traces the row itself, which
+   is the shape the user is actually about to activate.
+
+   `outline`, not `box-shadow`, because outline is not affected by the hover
+   background painting over it. */
+.scan-row:focus-visible {
+  outline: 2px solid var(--navy);
+  outline-offset: -2px;
+  border-radius: var(--radius-md);
+}
+
+/* Takes the leftover width so everything after it is pushed right. */
+.scan-row-main { flex: 1; min-width: 0; }
+
+.scan-row-url {
+  display: block;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-snug);
+  /* [General] The three-line truncation recipe: a long URL becomes an ellipsis
+     instead of stretching the row. All three properties are required. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scan-row-time { font-size: var(--text-xs); color: var(--muted); }
+.scan-row-critical { color: var(--critical); font-weight: var(--weight-medium); }
+
+/* The tier pill. Was #EDEFF3 — a fixed light grey, which on the dark theme is a
+   near-white block. --surface-sunken plus a border is the same shape in both. */
+.scan-row-tier {
+  font-size: var(--text-2xs);
+  color: var(--muted);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+/* --- The loading skeleton ------------------------------------------------- */
+
+/* A placeholder row reuses .scan-row for its height, padding and divider, so the
+   skeleton is guaranteed to be the same shape as the row it stands in for — the
+   one thing a skeleton must get right. What it must NOT inherit is the
+   interactive behaviour: it is a div, not a link, and a hover tint on something
+   unclickable is a promise the page cannot keep. */
+.scan-row-skeleton { cursor: default; }
+.scan-row-skeleton:hover { background: none; }
+
+/* The two bars inside stack, matching the URL-above-timestamp shape. */
+.scan-row-skeleton .scan-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ============================================================================
+   PAYMENT STATUS (history only)
+
+   Deliberately NOT the severity palette — red/amber/green are reserved for
+   security findings alone, and an expired subscription is a billing state, not
+   a vulnerability. But the first attempt at that gave status the same grey pill
+   as the tier tag beside it, so "Tier 1" and "Expired" became one indistinct
+   blur. The distinction is now carried by FORM rather than colour: the tier
+   stays a filled pill, while status is a bare dot-marked label. Two different
+   shapes read apart instantly even in one flat palette. [General]
+   ========================================================================== */
+
+.scan-row-status {
+  font-size: var(--text-2xs);
+  text-transform: capitalize;   /* data is lowercase; display is capitalised */
+  white-space: nowrap;
+  color: var(--muted);
+  /* [General] The dot is a pseudo-element, so no extra markup in the JSX. */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.scan-row-status::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+  /* currentColor makes the dot inherit whatever colour the label is set to,
+     so each state below only has to name one colour. [General] */
+  background: currentColor;
+}
+
+/* Live: solid navy dot. Navy is the sanctioned structural colour; passed-green
+   would be a severity colour on a billing state. */
+.status-active  { color: var(--navy); font-weight: var(--weight-medium); }
+
+/* Lapsed: muted text and a hollow dot — visibly "switched off". */
+.status-expired { color: var(--muted); }
+.status-expired::before { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+
+/* Waiting: muted, and the hollow dot again, since nothing is live yet. */
+.status-pending { color: var(--muted); font-style: italic; }
+.status-pending::before { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+
+/* ============================================================================
+   SCORE
+   ========================================================================== */
+
+.scan-row-score {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-tight);
+  white-space: nowrap;
+  /* [General] A fixed width keeps the scores in a straight column even though
+     the numbers differ in width. The `tabular` class on the element does the
+     rest — see base.css — so 7, 70 and 100 all occupy the same space. */
+  min-width: 58px;
+  text-align: right;
+}
+/* The score stays neutral ink, matching the mockup — where the "Overall score"
+   card is plain white while only the Critical/Warning/Passed count cards carry
+   a severity tint. The number is a summary, not a finding.
+
+   NOTE this is the documented counterpart to ScoreGauge's coloured ring: in a
+   list of ten scans, ten coloured numbers is a heat map nobody asked for; on the
+   report for one scan, the grade is the headline. The severity class is still
+   applied in the JSX so the decision lives here, in one place, and reverting it
+   is three colour values rather than a JSX change. */
+.scan-row-score.critical,
+.scan-row-score.warning,
+.scan-row-score.passed { color: var(--ink); }
+
+.score-suffix {
+  font-size: var(--text-2xs);
+  color: var(--muted-soft);
+  font-weight: var(--weight-normal);
+}
+
+.scan-row-arrow {
+  color: var(--muted-soft);
+  flex-shrink: 0;
+  /* Slides toward the destination on hover. [General] A 2px nudge is enough to
+     register as "this goes somewhere" without being animation for its own sake,
+     and it is the whole affordance on touch, where hover does not exist. */
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.scan-row:hover .scan-row-arrow { transform: translateX(2px); }
+
+/* ============================================================================
+   LINKS
+   ========================================================================== */
+
+.text-link {
+  display: inline-block;
+  font-size: var(--text-sm);
+  color: var(--navy);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm);
+}
+/* [General] text-underline-offset keeps the rule clear of the descenders on g
+   and y. The default sits on top of them. */
+.text-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* ============================================================================
+   NARROW SCREENS
+   ========================================================================== */
+
+@media (max-width: 560px) {
+  .dash-head { flex-direction: column; }
+
+  /* Hide the tier tag on very small screens — the score and URL matter more,
+     and the row would otherwise wrap awkwardly. [General] */
+  .scan-row-tier { display: none; }
+
+  /* The arrow goes too: at this width it costs 16px plus a gap that the URL
+     needs more, and the whole row being a link is already obvious on touch. */
+  .scan-row-arrow { display: none; }
+
+  .scan-row-score { min-width: 48px; }
+}

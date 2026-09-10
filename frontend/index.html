@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecuScan — Web App Security Audit</title>
+  <!-- Declared explicitly: without it the browser probes /favicon.ico and logs a 404. -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <!-- IBM Plex Sans (body) + IBM Plex Mono (URLs, scan IDs) — the Clinical Ledger typefaces -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!--
+    THE THEME BOOTSTRAP. This is the one piece of application logic that has to be
+    inline in the HTML, and the reason is timing: the browser paints as soon as it
+    has markup and CSS, which is BEFORE the React bundle has been fetched, parsed
+    and run. Setting data-theme from a component means the first paint uses the
+    default palette and the chosen one arrives a moment later — the white-flash
+    problem, in reverse, and just as visible.
+
+    A blocking inline script in <head> runs before that first paint, so the
+    attribute is already in place when the page is drawn and there is nothing to
+    flash. It is deliberately NOT a module (`type="module"` is deferred, which
+    would put it back after paint) and deliberately not in an external file (a
+    request to fetch, however small, is a request that can land late).
+
+    It duplicates a few lines of lib/theme.js on purpose — importing from a module
+    is exactly what it cannot do here. Kept to the smallest possible copy: the key
+    name, the allowed values and the "absence means system" rule. If those three
+    ever change, they change in both places.
+  -->
+  <script>
+    (function () {
+      try {
+        var stored = window.localStorage.getItem('secuscan.theme')
+        // Absence of the attribute is what hands control to prefers-color-scheme,
+        // so 'system' and an unrecognised value both mean "set nothing".
+        if (stored === 'navy' || stored === 'white') {
+          document.documentElement.setAttribute('data-theme', stored)
+        }
+      } catch (error) {
+        // localStorage throws in private mode and wherever site data is blocked.
+        // No theme is a fine outcome; a blank page because the head script threw
+        // is not.
+      }
+    })()
+  </script>
+  <!-- Paddle.js v2 SDK for checkout overlay -->
+  <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+</head>
+<body>
+  <!-- React mounts the entire app inside this one empty div (see src/main.jsx) -->
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>

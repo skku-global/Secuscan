@@ -1,0 +1,171 @@
+/* ============================================================================
+   REPORT.CSS — the standalone shareable report view.
+
+   Reuses scanResult.css for the score summary and finding rows; this file only
+   holds what makes the report read as a DOCUMENT rather than an app screen.
+
+   WHAT CHANGED HERE: the raw values are gone (see the note at the top of
+   dashboard.css), and the print block has grown from four lines into a real
+   print stylesheet — because the "Download PDF" button is now wired to
+   window.print(), so this @media block IS the PDF. It stopped being a courtesy
+   for anyone who happened to press Ctrl+P and became the actual output of a
+   feature, which is a much higher bar.
+   ========================================================================== */
+
+.report-page { padding-bottom: var(--space-16); }
+
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-8);
+}
+
+.report-title-block { margin-bottom: var(--space-8); }
+
+.report-target {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+  margin: var(--space-1) 0 var(--space-2);
+  /* [General] `anywhere` rather than the old `break-all`: it takes the existing
+     break opportunities in a URL first (after a slash, a dot, a hyphen) and only
+     splits mid-token when there is no alternative. break-all would chop
+     "https://example.com" at whatever character hit the edge, which makes a URL
+     noticeably harder to read back. */
+  overflow-wrap: anywhere;
+}
+
+.report-date {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: var(--leading-snug);
+}
+
+/* ============================================================================
+   FINDINGS
+
+   Every row is already open here, so there is no button, no chevron and no
+   hover — see Report.jsx. What is left is a document section per finding.
+   ========================================================================== */
+
+.report-findings { border-top: 1px solid var(--border); }
+
+/* Always-open rows, so slightly more breathing room than the app view. */
+.report-finding {
+  padding: var(--space-5) var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+/* The shared .finding-head from scanResult.css is a flex row sized for a button.
+   Here it is a plain div, and its bottom padding would double up with the
+   detail panel's own top spacing. */
+.report-finding .finding-head { padding: 0; }
+
+/* scanResult.css animates the detail panel in, because there it APPEARS when
+   someone clicks. Here every panel is present from the first paint, so the
+   animation would fire on all of them at once on page load — a report that
+   shivers into place. [General] Reusing a stylesheet means also switching off
+   the parts whose reason for existing does not apply. */
+.report-finding .finding-detail {
+  animation: none;
+  padding-bottom: 0;
+}
+
+/* ============================================================================
+   FOOTER
+   ========================================================================== */
+
+.report-footer {
+  margin-top: var(--space-10);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+.report-footer p {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: var(--leading-relaxed);
+  margin: 0;
+  max-width: 60ch;
+}
+
+/* ============================================================================
+   PRINT — this is the PDF.
+
+   The Download PDF button calls window.print(). That makes everything below the
+   actual deliverable rather than a nicety, and it is why this block is longer
+   than the four lines it used to be. base.css already flattens the colour tokens
+   to ink-on-white for print; this handles the report's own layout.
+
+   [General] Print CSS is the cheapest possible PDF generator: no server, no
+   headless browser, no library, and it uses the reader's own paper size. The
+   trade-off is no control over headers, footers or page numbers — those come
+   from the browser's print dialogue. When the report needs a fixed cover page
+   and pagination, that is the point to reach for a real generator.
+   ========================================================================== */
+
+@media print {
+  /* A button cannot be pressed on paper, and the share link points at the page
+     the reader is already holding. */
+  .report-actions,
+  .report-share-link { display: none; }
+
+  .report-page {
+    max-width: 100%;
+    padding-bottom: 0;
+  }
+
+  /* [General] THE THREE PROPERTIES THAT MAKE PRINT OUTPUT USABLE.
+
+     break-inside: avoid keeps a finding whole — a page break through the middle
+     of "Suggested fix" is the single worst thing print CSS does by default.
+
+     break-after: avoid on a label stops a heading being orphaned at the foot of
+     a page with its text overleaf.
+
+     orphans/widows: 3 stops a paragraph leaving one lonely line behind. */
+  .report-finding {
+    break-inside: avoid;
+    page-break-inside: avoid;   /* the older name; some engines still want it */
+  }
+
+  .detail-label { break-after: avoid; }
+
+  .detail-text,
+  .report-footer p {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* The score summary is the headline of the document — keep it on page one with
+     the title block above it. */
+  .score-summary {
+    break-inside: avoid;
+    break-after: avoid;
+  }
+
+  /* The arc is drawn with a stroke, and browsers drop background colours in
+     print by default but keep strokes — so the ring survives. What does NOT
+     survive is the severity TINT on the count cards, which is a background.
+     print-color-adjust: exact asks the browser to print them anyway; without it
+     the three counts arrive as unlabelled white boxes.
+
+     [General] This is the property to reach for whenever a printed page loses
+     the colour that was carrying the meaning. It is a request, not a guarantee —
+     the user's own "print background graphics" setting still wins. */
+  .score-count,
+  .score-dial-arc,
+  .score-dial-track,
+  .badge {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* The footer disclaimer is the one thing on the page with legal weight, so it
+     goes on every sheet rather than only the last. */
+  .report-footer { break-before: avoid; }
+}

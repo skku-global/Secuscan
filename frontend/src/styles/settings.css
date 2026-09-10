@@ -1,0 +1,402 @@
+/* ============================================================================
+   SETTINGS.CSS — the account page at "/settings".
+
+   WHY ITS OWN FILE rather than more of auth.css: auth.css styles the pages you see
+   BEFORE you have a session — login, signup, the code prompts. Settings is the
+   opposite, a page only a signed-in user reaches, and the two only overlap because
+   both contain forms. That overlap is handled by SHARING the form classes (`.field`,
+   `.input`, `.auth-form`, `.auth-error`, `.pw-check`) rather than by living in the
+   same file, so this file holds only what is specific to the settings layout.
+
+   WHAT THIS REPLACED: a `.sec-*` block at the end of auth.css, written for
+   pages/Security.jsx. That page is gone — Settings absorbed it — so the block went
+   with it rather than being left as dead CSS that the next person has to prove is
+   unused. The rules that were worth keeping are below, renamed.
+
+   NO NEW COLOURS AND NO NEW SPACING VALUES. Every value here is a token from
+   tokens.css. A literal hex in this file would be a colour the theme cannot change,
+   which on a page with a light and a dark palette shows up as one element that
+   ignores the switch.
+   ========================================================================== */
+
+/* ----------------------------------------------------------------------------
+   THE CARD
+
+   Every section on the page is `class="card set-card"` — base.css supplies the
+   surface, border and radius; this adds only the page-specific width and rhythm.
+   -------------------------------------------------------------------------- */
+
+.set-card {
+  /* NO max-width HERE, deliberately. `.container` in base.css is already
+     `--width-prose` (720px), which is the right measure for cards that are mostly
+     sentences — a line of text 1000px wide is genuinely harder to read, because the
+     eye loses its place on the return sweep. Repeating the value here would be a
+     second place to change it, and the copy nobody edits is the one that ends up
+     wrong. */
+
+  /* Cards STACK, they do not replace each other, so each needs its own gap below.
+     A `gap` on a flex parent would be tidier, but the sections are siblings of the
+     page heading inside <main>, and giving <main> a flex layout would change how
+     every other page's content flows. [General] */
+  margin-bottom: var(--space-5);
+}
+
+.set-heading {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-snug);
+  margin-bottom: var(--space-3);
+}
+
+.set-text {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-4);
+}
+
+/* The last paragraph in a card should not push the card's own padding open. WHY THIS
+   RATHER THAN REMOVING THE MARGIN AT THE SOURCE: most `.set-text` paragraphs DO have
+   something after them and need the gap. [General] `:last-child` lets one rule handle
+   both cases instead of a second class applied by hand — which is a class somebody
+   will forget. */
+.set-card > .set-text:last-child,
+.set-card > .auth-fine:last-child {
+  margin-bottom: 0;
+}
+
+/* ----------------------------------------------------------------------------
+   THE ACCOUNT FACTS
+
+   A <dl> of label/value pairs: email, sign-in method, created date, plan.
+   -------------------------------------------------------------------------- */
+
+.set-facts {
+  display: flex;
+  flex-direction: column;
+  /* Hairlines between rows rather than gaps. A ledger reads as one table; four
+     floating pairs read as four unrelated statements. */
+  gap: 0;
+}
+
+.set-fact {
+  display: grid;
+  /* A fixed label column so the values line up vertically — the thing that makes
+     this read as a record rather than as prose. `minmax(0, 1fr)` on the value column
+     is the guard against a long email address widening the grid instead of
+     wrapping. [General] A bare `1fr` will not shrink below its content. */
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: baseline;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* No rule under the last row: it would sit just above the card's own border and read
+   as a doubled line. */
+.set-fact:last-child { border-bottom: none; padding-bottom: 0; }
+.set-fact:first-child { padding-top: 0; }
+
+.set-fact dt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  /* [General] A <dt> is a block by default and <dd> carries a browser-default
+     indent; the grid overrides the first and this resets the second. Without the
+     margin reset the values sit 40px right of where the grid put them. */
+  margin: 0;
+}
+
+.set-fact dt svg { color: var(--muted-soft); flex-shrink: 0; }
+
+.set-fact dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  /* An email address has no spaces, so it cannot wrap at a word boundary and will
+     otherwise push the card wider than the viewport on a phone. `anywhere` lets it
+     break mid-string — ugly, but a horizontal scrollbar on an account page is
+     worse. [General] */
+  overflow-wrap: anywhere;
+}
+
+/* ----------------------------------------------------------------------------
+   THE 2FA STATE LINE
+
+   One line answering "am I protected?", which is the reason the section is read.
+   -------------------------------------------------------------------------- */
+
+.set-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-snug);
+  margin-bottom: var(--space-3);
+}
+
+.set-state-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  /* A transparent border on BOTH states, so switching between them changes the
+     colour and never the box's size. Without it, the "on" state is 2px larger and
+     the text beside it shifts. [General] */
+  border: 1px solid transparent;
+  flex-shrink: 0;
+}
+
+/* On/off in the passed/muted pair rather than passed/critical. WHY: 2FA being off is
+   a weaker configuration, not a failure — this may be a personal account on a laptop
+   nobody else touches. Red here would cry wolf, and the wording beside it already
+   makes the case for turning it on. Red is kept for the one genuine failure in this
+   section: zero recovery codes left, which renders as `.auth-error`.
+
+   The ICON differs too — ShieldCheck against ShieldOff — so the state never rests on
+   colour alone (WCAG 1.4.1). */
+.set-state-icon.is-on {
+  background: var(--passed-bg);
+  border-color: var(--passed-border);
+  color: var(--passed-strong);
+}
+
+.set-state-icon.is-off {
+  background: var(--surface-sunken);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+/* The recovery-code count. A bordered chip rather than a sentence, because it is a
+   number someone comes back to check. */
+.set-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+  margin-bottom: var(--space-4);
+}
+
+.set-count svg { color: var(--muted); }
+
+/* ----------------------------------------------------------------------------
+   ACTIONS AND THE FORMS THEY OPEN
+   -------------------------------------------------------------------------- */
+
+.set-actions {
+  display: flex;
+  gap: var(--space-3);
+  /* Two buttons side by side fit comfortably on a desktop and not at all on a
+     narrow phone. Wrapping is what stops the second one being cut off. */
+  flex-wrap: wrap;
+}
+
+/* WHY THE FORM IS INSET RATHER THAN A SEPARATE CARD: it belongs to the section whose
+   button opened it, and a second card would break that link — the user would have to
+   infer which control the form came from. A top rule and a gap say "this is part of
+   the thing above" without adding a boundary. */
+.set-panel {
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+
+.set-panel-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-snug);
+  /* `.auth-form` is a flex column with its own gap, so this needs no bottom margin —
+     adding one would double the spacing under the title only. [General] A margin
+     inside a flex container with `gap` is a classic source of one item sitting
+     further from its neighbour than the rest. */
+  margin-bottom: 0;
+}
+
+/* `.auth-form` gives its submit button a top margin sized for the centred auth pages,
+   where the button is the last thing on a short form. Inside a settings panel the
+   flex gap already spaces it and the extra reads as a gap nobody asked for. */
+.set-card .auth-form .btn-primary { margin-top: var(--space-2); }
+
+/* The submit button in a panel should not stretch across the card the way it does on
+   the login page. It is one action among several on this page, not the page's
+   purpose. */
+.set-panel .btn-primary { align-self: flex-start; }
+
+/* ----------------------------------------------------------------------------
+   THE CONFIRMATION LINE
+
+   Written by four different actions and rendered once, at the foot of the page.
+   -------------------------------------------------------------------------- */
+
+/* `.auth-notice` already supplies the surface, border and flex layout, and the
+   container supplies the width. This adds only the tick's alignment against the first
+   line of a sentence that may wrap to three. */
+.set-done {
+  align-items: flex-start;
+}
+
+.set-done svg {
+  color: var(--passed-strong);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* ----------------------------------------------------------------------------
+   THE BILLING PANEL AND THE RECEIPT LIST
+
+   Two things needed styling that nothing on the page had before: a confirmation
+   panel that is NOT a form, and a list of past orders.
+   -------------------------------------------------------------------------- */
+
+/* WHY THIS RULE EXISTS AT ALL
+   Every other `.set-panel` on this page is a `<form class="auth-form set-panel">`,
+   and `.auth-form` is a flex column with a gap — which is exactly why
+   `.set-panel-title` above sets `margin-bottom: 0`. The cancel panel collects no
+   fields, so it is a plain `<div>` and gets no flex gap, and the title lands flush
+   against the paragraph under it.
+
+   `:not(.auth-form)` targets that case only, so the seven existing panels are
+   untouched. [General] Written as a negation rather than by adding a second class in
+   the JSX, because a class applied by hand is a class the next panel forgets. */
+.set-panel:not(.auth-form) > .set-panel-title {
+  margin-bottom: var(--space-3);
+}
+
+/* The history is content belonging to the section, not a panel the user opened, so it
+   gets the quieter of the two separators — `--border-subtle` against `.set-panel`'s
+   `--border`. The difference is small and it is the difference between "more of this
+   section" and "a thing that just appeared". */
+.set-orders {
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* This title has an icon in it, which the panel titles do not — hence the flex that
+   `.set-panel-title` itself has no reason to carry. */
+.set-orders > .set-panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.set-orders > .set-panel-title svg { color: var(--muted-soft); }
+
+.set-order-list {
+  /* [General] A <ul> arrives with a bullet and about 40px of left padding from the
+     browser's own stylesheet. Both have to go explicitly; there is no "no list" value
+     that removes the indent as well as the marker. */
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* SAME SHAPE AS `.set-fact` ABOVE, and deliberately so: hairline-separated rows read
+   as one ledger, which is what a receipt list is. Not `.set-fact` itself, because the
+   columns are the other way round — a fixed label column on the left is right for
+   "Email: …" and wrong for a row whose right-hand figure is the part being scanned
+   down. */
+.set-order {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.set-order:last-child { border-bottom: none; padding-bottom: 0; }
+
+.set-order-main,
+.set-order-side {
+  display: flex;
+  /* Baseline rather than centre: the plan name and the date beside it are different
+     sizes, and centring two different sizes leaves neither sitting on the line. */
+  align-items: baseline;
+  gap: var(--space-2);
+  /* `min-width: 0` so a long plan name shrinks instead of widening the row past the
+     card. [General] A flex item will not shrink below its content without this. */
+  min-width: 0;
+}
+
+.set-order-side {
+  /* The figures are what the eye runs down, so they finish at a common right edge. */
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.set-order-plan {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink);
+}
+
+.set-order-date,
+.set-order-card {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.set-order-card {
+  color: var(--muted-soft);
+  /* The four digits must not wrap away from the brand they belong to. */
+  white-space: nowrap;
+}
+
+.set-order-amount {
+  font-size: var(--text-sm);
+  color: var(--ink);
+  /* Fixed-width figures, so a column of amounts lines up on the decimal point instead
+     of drifting by a digit's width. Same reason `.tabular` exists in base.css — this
+     is one span, so the property is set here rather than by adding a second class. */
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------------------------
+   NARROW SCREENS
+
+   One breakpoint, and only for the thing that actually breaks: a 160px label column
+   beside a wrapping email address leaves the value squeezed into a strip.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 560px) {
+  .set-fact {
+    /* Label above value. `1fr` alone — one column — and the gap shrinks because the
+       pair is now vertical and `--space-4` between a label and its own value reads
+       as two separate items. */
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+
+  /* Buttons full width and stacked. WHY: two half-width buttons on a 360px screen
+     leave each one too narrow for its label, which then wraps to two lines and makes
+     the pair different heights. */
+  .set-actions { flex-direction: column; align-items: stretch; }
+  .set-actions .btn-primary,
+  .set-actions .btn-secondary { justify-content: center; }
+
+  /* A receipt row is four pieces of text on one line, and `space-between` on a 360px
+     screen puts the amount hard against the right edge with the plan name wrapping
+     underneath it. Stacking the two halves keeps each pair with its own label. */
+  .set-order { flex-direction: column; gap: var(--space-1); }
+
+  .set-order-side {
+    /* Left, not right: once the halves are stacked there is no column of figures for
+       a right edge to align, and a lone right-aligned amount under a left-aligned
+       plan name looks like a mistake. */
+    justify-content: flex-start;
+    text-align: left;
+  }
+}
