@@ -1113,9 +1113,9 @@ export default function Settings() {
             ) : !hasPassword ? (
               <>
                 <p className="set-text">
-                  Signing in asks for a six-digit code from your authenticator app after
-                  your password. To enable two-factor authentication on SecuScan, you need
-                  to set an account password first.
+                  Your password is the only thing between anyone who has it and your scan
+                  history. An authenticator app adds a code that changes every 30 seconds,
+                  which a stolen password on its own cannot produce.
                 </p>
 
                 {status.required && (
@@ -1566,11 +1566,7 @@ export default function Settings() {
           you are reading this on cannot be assumed clean.
         </p>
 
-        {!hasPassword && (
-          <p className="set-text" style={{ marginTop: 'var(--space-3)' }}>
-            This account signs in with Google and has no SecuScan password yet. To protect against unauthorised sign-outs, you must set an account password first before signing out of all devices.
-          </p>
-        )}
+
 
         <div className="set-actions">
           <button
