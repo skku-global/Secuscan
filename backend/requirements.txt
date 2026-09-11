@@ -24,6 +24,8 @@ pyotp>=2.9              # RFC 6238 TOTP, for two-factor sign-in.
 segno>=1.6              # QR rendering for TOTP enrolment, done in-process so the
                         # shared secret never leaves this server. See the import
                         # comments in auth.py for why segno over `qrcode`.
+cryptography>=42.0      # Fernet symmetric encryption and PBKDF2 for Tier 2 credentials
+                        # at rest. Imported in credentials.py; fails closed if missing.
 
 # NOT dependencies, and worth recording so nobody adds them:
 #   resend    - the email provider is reached over its HTTP API with httpx, so the
@@ -33,3 +35,4 @@ segno>=1.6              # QR rendering for TOTP enrolment, done in-process so th
 #               a second opinion about which version is right.
 #   bs4       - discovery.py parses with the standard library on purpose; see the
 #               note there on the cost of a parser a deployment has to patch.
+requests>=2.31
