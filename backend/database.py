@@ -1120,6 +1120,17 @@ async def get_scan_credentials(scan_id: str, user_id: str) -> dict | None:
     )
     if not doc:
         return None
+
+    # THE EXPIRY IS RE-CHECKED HERE, NOT LEFT TO THE INDEX.
+    # _has_expired above says why in general: the TTL monitor sweeps about once a
+    # minute, so "past expiresAt but not yet deleted" is a state every one of these
+    # collections spends time in, and it must never read as valid. This collection was
+    # the one that omitted the check. It is also the one where the record is a live
+    # client password, so a stale read here hands a Tier 2 check credentials the
+    # retention window already promised were gone.
+    if _has_expired(doc.get("expiresAt")):
+        return None
+
     return _with_id(doc)
 
 

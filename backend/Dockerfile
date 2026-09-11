@@ -26,6 +26,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Working directory inside the container
 WORKDIR /app
 
+# System dependencies: ca-certificates for verified HTTPS egress and curl for diagnostics
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Layer caching: copy and install dependencies before copying application code
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \

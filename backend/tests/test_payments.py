@@ -15,7 +15,10 @@ Run from anywhere (the `import _path` line puts backend/ on sys.path):
 """
 
 import asyncio
+import json as _json
 from datetime import datetime, timedelta, timezone
+
+import httpx
 
 import _path  # noqa: F401  - puts backend/ on sys.path; must precede the imports below
 import billing
@@ -226,12 +229,59 @@ except ProviderNotConfigured as exception:
 # permanent raise, and that once built it does not quietly grant a plan. A stub
 # that granted would be the worst possible bug in this package.
 #
-# create_checkout with fake credentials hits the real Paddle API, which rejects the
-# key - so it returns a REFUSED outcome rather than granting. That is the correct
-# behaviour: no plan is given away, and no NotImplementedError is thrown either.
+# create_checkout runs against a STUBBED transport, never the real Paddle API.
+#
+# WHY THAT IS NOT A SHORTCUT. An offline suite that reaches the internet is not an
+# offline suite. It would pass or fail on network weather and on whether a sandbox key
+# had been rotated, it would post a checkout attempt to a third party every time
+# somebody ran the tests, and on a machine with no egress it would report a failure
+# that has nothing to do with this code. The stub is also the only way to assert the
+# two things below that actually matter, since neither of them is visible in a 403.
 #
 # handle_webhook with no Paddle-Signature header returns None - signature
 # verification is the first check, and a missing header means nothing is processed.
+
+
+class _StubResponse:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = _json.dumps(payload)
+
+    def json(self):
+        return self._payload
+
+
+class _StubClient:
+    """Stands in for httpx.AsyncClient: records the request, returns `reply`."""
+
+    sent = None
+    reply = None
+
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+    async def post(self, url, **kwargs):
+        type(self).sent = {
+            "url": url,
+            "headers": kwargs.get("headers") or {},
+            "body": kwargs.get("json") or {},
+        }
+        return type(self).reply
+
+
+class _StubHttpx:
+    AsyncClient = _StubClient
+    # The REAL exception class, so paddle's `except httpx.HTTPError` still binds.
+    HTTPError = httpx.HTTPError
+
+
 config.PADDLE_CLIENT_TOKEN = "test_token"
 config.PADDLE_API_KEY = "test_key"
 config.PADDLE_WEBHOOK_SECRET = "test_secret"
@@ -242,11 +292,40 @@ check("with credentials, nothing is missing", paddle.missing_credentials(), [])
 built = paddle.PaddleProvider()
 check("and it builds", built.name, "paddle")
 
-checkout_result = run(built.create_checkout(plan=STARTER, user={"id": "u1"}, card=card(), now=NOW))
-check("create_checkout does not grant on fake credentials",
-      checkout_result.status == "granted", False)
-check("create_checkout refuses or pends (not a giveaway)",
-      checkout_result.status in ("refused", "pending"), True)
+_real_httpx = paddle.httpx
+paddle.httpx = _StubHttpx
+
+# A key Paddle rejects must REFUSE - not raise, and not grant.
+_StubClient.reply = _StubResponse(403, {"error": {"code": "authentication_malformed"}})
+rejected = run(built.create_checkout(plan=STARTER, user={"id": "u1"}, card=card(), now=NOW))
+check("a rejected key refuses", rejected.status, "refused")
+check("  and it is not granted", rejected.status == "granted", False)
+check("  and Paddle's own error text is not repeated to the user",
+      "authentication_malformed" in (rejected.problem or ""), False)
+
+# THE ONE THAT MATTERS HERE. Paddle ACCEPTED the transaction, and the outcome is still
+# pending. A provider that granted on this response would hand out a paid plan on a
+# transaction nobody has paid for yet - the entitlement is the webhook's job, and this
+# is the assertion that stops a later edit from moving it earlier.
+_StubClient.reply = _StubResponse(200, {"data": {"id": "txn_123"}})
+accepted = run(built.create_checkout(plan=STARTER, user={"id": "u1"}, card=card(), now=NOW))
+check("an accepted transaction PENDS", accepted.status, "pending")
+check("  it is not granted", accepted.status == "granted", False)
+check("  the browser is given the transaction id",
+      accepted.client_action["transaction_id"], "txn_123")
+
+# AND THE CARD NEVER LEFT THIS PROCESS. create_checkout accepts one only because the
+# seam is shared with the mock; a real processor collects the card itself. So the
+# request body is searched for every part of the card that was handed in.
+_sent_body = _json.dumps(_StubClient.sent["body"])
+check("no card number reached Paddle", "4242" in _sent_body, False)
+check("no CVC reached Paddle", "123" in _sent_body, False)
+check("no expiry reached Paddle", "12/29" in _sent_body, False)
+check("no cardholder name reached Paddle", "A Person" in _sent_body, False)
+check("but the user id did", _StubClient.sent["body"]["custom_data"]["user_id"], "u1")
+check("and the plan id did", _StubClient.sent["body"]["custom_data"]["plan_id"], "starter")
+
+paddle.httpx = _real_httpx
 
 webhook_result = run(built.handle_webhook(headers={}, body=b"{}"))
 check("handle_webhook returns None with no signature",
@@ -291,7 +370,24 @@ config.PAYMENT_PROVIDER = _saved_name
     config.PADDLE_WEBHOOK_SECRET,
     config.paddle_price_id,
 ) = _saved
-check("the real configuration is the mock", payments.provider_name(), "mock")
+# The section has just spent thirty lines rewriting the provider config, so the last
+# thing to check is that putting it back produces the provider this deployment asked
+# for.
+#
+# WHAT THIS DELIBERATELY DOES NOT ASSERT IS A PARTICULAR PROVIDER. It used to: it
+# checked for "mock", which was true on every developer machine right up until somebody
+# configured Paddle for real - and a correctly configured deployment then turned the
+# suite red. A test that fails BECAUSE the configuration is right is worse than no test
+# at all, because the obvious way to make it pass again is to unconfigure Paddle.
+#
+# So the invariant is stated the way the section actually means it: the mock is reached
+# when, and only when, it was asked for by name. No amount of missing credentials and
+# no unrecognised provider string can arrive at it.
+_restored = payments.provider_name()
+check("the mock is reached only by asking for it by name",
+      _restored == "mock", _saved_name == "mock")
+check("and the restored provider is a real one",
+      _restored in ("mock", "paddle", "none"), True)
 check("so payments are available", payments.payments_available(), True)
 
 

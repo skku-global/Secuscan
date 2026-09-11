@@ -51,6 +51,13 @@ export default function ScanForm() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
+  /* Retention is a separate decision from submission, and it starts off.
+     The scan needs the password; keeping the password afterwards is a
+     convenience for re-running, and a convenience is not something to opt
+     somebody into by default when the thing being kept is a credential to
+     their own system. */
+  const [retainCredentials, setRetainCredentials] = useState(false)
+
   const userPlanTier = user?.plan?.tier || 1
   const canRunTier2 = Boolean(user && userPlanTier >= 2)
 
@@ -109,6 +116,7 @@ export default function ScanForm() {
                 stagingUrl: stagingUrl.trim() || undefined,
                 username: username.trim(),
                 password,
+                retain: retainCredentials,
               }
             : null,
       }
@@ -264,12 +272,53 @@ export default function ScanForm() {
                 </div>
               </div>
 
+              {/* WHY THIS IS A CHECKBOX AND NOT A SETTING.
+                  Retention is per-scan because the reason to want it is
+                  per-scan: re-running the same audit after a fix without
+                  retyping the password. A global preference would be a decision
+                  made once, months before the scan it applies to. */}
+              <label className="tier-retain-row">
+                <input
+                  type="checkbox"
+                  checked={retainCredentials}
+                  onChange={(e) => setRetainCredentials(e.target.checked)}
+                  disabled={submitting}
+                />
+                <span>
+                  <strong>Keep these credentials for 24 hours</strong> so this audit can be
+                  re-run after a fix without entering them again.
+                </span>
+              </label>
+
+              {/* THE COPY CHANGES WITH THE CHECKBOX, because the previous
+                  single sentence described a storage policy that is now only
+                  one of two things that can happen - and it described it
+                  inaccurately in both.
+
+                  It promised credentials were "scrubbed from memory", which
+                  Python cannot deliver: strings are immutable, so dropping the
+                  field builds a new string and leaves the original on the heap
+                  for the collector. scrub_credentials says so at length in its
+                  own docstring. Claiming a guarantee the implementation does not
+                  provide is precisely the class of finding this product sells,
+                  and putting one on the form where a client is asked to type a
+                  password would be an unusually poor place to make it. */}
               <p className="tier-security-guarantee">
                 <Key size={13} strokeWidth={2} />
-                <span>
-                  Credentials are encrypted with AES-128 and automatically purged after 24 hours.
-                  They are scrubbed from memory immediately upon completion of the checks.
-                </span>
+                {retainCredentials ? (
+                  <span>
+                    Encrypted with an authenticated cipher before being written, deleted
+                    automatically after 24 hours, and readable only by the checks that
+                    need them. You can delete them sooner from the scan report at any
+                    point.
+                  </span>
+                ) : (
+                  <span>
+                    Used for this scan only and never written to storage. They are held in
+                    memory for the length of the run and dropped when it ends, and they
+                    never appear in the report, in logs, or in any finding.
+                  </span>
+                )}
               </p>
             </div>
           )}

@@ -24,8 +24,9 @@ import TopBar from '../components/TopBar'
 import ScoreGauge from '../components/ScoreGauge'
 import FindingCard from '../components/FindingCard'
 import ReportSkeleton from '../components/ReportSkeleton'
+import CredentialRetention from '../components/CredentialRetention'
 import { useScan } from '../hooks/useScan'
-import { sortBySeverity } from '../lib/findings'
+import { groupByTier } from '../lib/findings'
 import { formatRelativeTime } from '../lib/formatDate'
 import '../styles/scanResult.css'
 
@@ -97,8 +98,11 @@ export default function ScanResult() {
     )
   }
 
-  // Worst news first — see sortBySeverity in lib/findings.js.
-  const orderedFindings = sortBySeverity(scan.findings)
+  /* Worst news first, WITHIN each tier — see groupByTier in lib/findings.js for
+     why the two tiers are not interleaved. Empty groups are dropped, so a Tier 1
+     scan renders as one unbroken list exactly as it did before. */
+  const tierGroups = groupByTier(scan.findings)
+  const showTierHeadings = tierGroups.length > 1
 
   return (
     <div className="container">
@@ -120,22 +124,45 @@ export default function ScanResult() {
         {/* The four summary cards. Counts are derived inside the component. */}
         <ScoreGauge score={scan.score} findings={scan.findings} />
 
-        <p className="section-label">Findings, critical first</p>
+        {/* Only rendered for a Tier 2 scan, because a Tier 1 scan never asked for
+            credentials and a panel saying none are stored would be answering a
+            question the reader did not ask. */}
+        {scan.tier === 2 && <CredentialRetention scanId={scan.id} />}
 
-        <div className="findings">
-          {/* [React] RENDERING A LIST WITH .map()
+        {!showTierHeadings && (
+          <p className="section-label">Findings, critical first</p>
+        )}
 
-              .map() turns each finding object into a <FindingCard>. This is THE
-              way to render a list in React — there is no loop syntax in JSX.
+        {tierGroups.map((group) => (
+          <section className="tier-group" key={group.tier}>
+            {showTierHeadings && (
+              <div className="tier-group-heading">
+                <p className="section-label">
+                  {group.label}
+                  <span className="tier-group-count">
+                    {group.findings.length} {group.findings.length === 1 ? 'check' : 'checks'}
+                  </span>
+                </p>
+                <p className="tier-group-blurb">{group.blurb}</p>
+              </div>
+            )}
 
-              The `key` prop is required and easy to forget. React uses it to
-              track which item is which between renders. Without a stable key,
-              expanding one row could visually "move" to another row when the
-              list changes. Use a real unique id, never the array index. */}
-          {orderedFindings.map((finding) => (
-            <FindingCard key={finding.id} finding={finding} />
-          ))}
-        </div>
+            <div className="findings">
+              {/* [React] RENDERING A LIST WITH .map()
+
+                  .map() turns each finding object into a <FindingCard>. This is THE
+                  way to render a list in React — there is no loop syntax in JSX.
+
+                  The `key` prop is required and easy to forget. React uses it to
+                  track which item is which between renders. Without a stable key,
+                  expanding one row could visually "move" to another row when the
+                  list changes. Use a real unique id, never the array index. */}
+              {group.findings.map((finding) => (
+                <FindingCard key={finding.id} finding={finding} />
+              ))}
+            </div>
+          </section>
+        ))}
 
         {/* NO LONGER A MOCK. It prints, and the browser's print dialogue offers
             "Save as PDF" — see the note on the same button in Report.jsx.

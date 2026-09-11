@@ -428,3 +428,104 @@
    from the markup instead of inferred from what happens to be inside it. */
 .finding-skeleton:hover { background: none; }
 .finding-skeleton .finding-head { cursor: default; }
+
+
+/* ============================================================================
+   TIER GROUPS — the heading above each half of a Tier 2 report.
+
+   Only rendered when a scan actually has both halves, so a Tier 1 report is
+   untouched: no heading, no extra spacing, the same single list it always was.
+   ========================================================================== */
+
+.tier-group + .tier-group {
+  margin-top: var(--space-7);
+}
+
+.tier-group-heading {
+  margin-bottom: var(--space-3);
+}
+
+.tier-group-heading .section-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.tier-group-count {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-regular);
+  color: var(--muted-soft);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.tier-group-blurb {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: var(--leading-snug);
+  max-width: 62ch;
+}
+
+/* ============================================================================
+   CREDENTIAL RETENTION — the strip above the findings on a Tier 2 scan saying
+   what happened to the password the client typed in.
+
+   Deliberately quiet in the common case. The default answer is "nothing was
+   stored", which is good news, and good news presented as an alert trains
+   people to stop reading alerts.
+   ========================================================================== */
+
+.cred-retention {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--muted);
+}
+
+.cred-retention svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.cred-retention.is-clear svg { color: var(--passed); }
+.cred-retention.is-held  svg { color: var(--warning); }
+.cred-retention.is-unknown svg { color: var(--muted-soft); }
+
+/* The only state with a button, so it is the only one that needs to lay out a
+   third column. The others stay a simple icon-and-text row. */
+.cred-retention.is-held {
+  align-items: center;
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-strong);
+}
+
+.cred-retention-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.cred-retention-hint {
+  font-size: var(--text-xs);
+  opacity: 0.8;
+}
+
+@media (max-width: 640px) {
+  .cred-retention.is-held {
+    flex-wrap: wrap;
+  }
+
+  .cred-retention.is-held .btn-secondary {
+    margin-left: auto;
+  }
+}

@@ -151,7 +151,7 @@ async function authedRequest(path, options = {}) {
    `options` optionally carries:
      - loginUrl: optional explicit login page URL
      - tier: 1 (default) or 2 (deep authenticated audit)
-     - credentials: { stagingUrl, username, password } for Tier 2 access */
+     - credentials: { stagingUrl, username, password, retain } for Tier 2 access */
 export async function createScan(url, consent, options = {}) {
   const { loginUrl, tier = 1, credentials = null } = options
   const payload = { url, consent, tier }
@@ -165,6 +165,12 @@ export async function createScan(url, consent, options = {}) {
       stagingUrl: credentials.stagingUrl ? credentials.stagingUrl.trim() : undefined,
       username: credentials.username ? credentials.username.trim() : '',
       password: credentials.password || '',
+      /* Coerced rather than passed through. The backend defaults this to false
+         when it is absent, so an undefined here would already do the safe
+         thing - but sending the boolean the user actually chose means the
+         request body says what was agreed to rather than relying on both ends
+         agreeing about a missing field. */
+      retain: Boolean(credentials.retain),
     }
   }
 
@@ -621,6 +627,14 @@ export async function regenerateRecoveryCodes(code) {
    NOTE the field names match the server's model exactly (currentPassword /
    newPassword). A mismatch here is a 422 with a field path rather than a message,
    which is the one error shape the forms in this app cannot render usefully. */
+export async function setPassword(password) {
+  return postAuthed(
+    '/auth/set-password',
+    { password },
+    'Could not set your password.',
+  )
+}
+
 export async function changePassword({ currentPassword, newPassword }) {
   return postAuthed(
     '/auth/change-password',

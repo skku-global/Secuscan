@@ -169,3 +169,81 @@
      goes on every sheet rather than only the last. */
   .report-footer { break-before: avoid; }
 }
+
+
+/* ============================================================================
+   TIER GROUPS AND UNVERIFIED CHECKS on the shareable report.
+
+   Separate class names from the dashboard's .tier-group because this document
+   is printed, and the print rules below need to reach these headings without
+   also reaching the app chrome that shares the page on /dashboard.
+   ========================================================================== */
+
+.report-tier-group + .report-tier-group {
+  margin-top: var(--space-8);
+}
+
+.report-tier-heading {
+  margin-bottom: var(--space-3);
+}
+
+.report-tier-heading .section-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.report-tier-count {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-regular);
+  color: var(--muted-soft);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.report-tier-blurb {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: var(--leading-snug);
+  max-width: 68ch;
+}
+
+/* A left rule rather than a fill. The finding still has to read as one of the
+   list; what it must not do is read as a pass, and an unmistakable edge marker
+   does that without turning the row into an alert box. */
+.report-finding.is-unverified {
+  border-left: 3px solid var(--warning-border);
+}
+
+.report-unverified-note {
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  color: var(--warning-strong);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+@media print {
+  /* A tier heading stranded at the foot of a sheet with its findings overleaf
+     is the one break that actively misleads - the checks on the next page read
+     as belonging to whatever heading came before. */
+  .report-tier-heading {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .report-tier-group {
+    break-inside: auto;
+  }
+
+  /* The tints on both of these carry meaning rather than decoration, so they
+     have to survive the printer's default of dropping backgrounds. */
+  .report-unverified-note,
+  .report-finding.is-unverified {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

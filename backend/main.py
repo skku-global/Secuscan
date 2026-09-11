@@ -235,6 +235,25 @@ class Tier2Credentials(BaseModel):
     username: str = Field(..., min_length=1, max_length=256, description="Dedicated test account username/email")
     password: str = Field(..., min_length=1, max_length=256, description="Dedicated test account password")
 
+    # RETENTION IS OPT-IN AND DEFAULTS TO KEEPING NOTHING.
+    # The default path never writes these credentials anywhere: they are held in memory
+    # for the duration of the scan and dropped when it ends. A client who wants to
+    # re-run the same audit later can ask for them to be kept, and that request is what
+    # this flag is - a choice the client made, not a convenience the server assumed.
+    #
+    # Note the direction of the default. A boolean that defaults to False stores nothing
+    # when an older client, a hand-rolled curl call, or a future caller omits the field.
+    # Defaulting to True would mean every caller that had not heard of retention yet
+    # silently opted their client's password into a day on disk.
+    retain: bool = Field(
+        default=False,
+        description=(
+            "Keep these credentials encrypted at rest for 24 hours so the scan can be "
+            "re-run without re-entering them. Defaults to false, in which case they "
+            "are used for this scan only and are never written to storage."
+        ),
+    )
+
     @field_validator("stagingUrl")
     @classmethod
     def validate_staging_url(cls, value: str | None) -> str | None:
@@ -390,11 +409,54 @@ async def create_scan(
             "username": request.credentials.username,
             "password": request.credentials.password,
         }
-        encrypted_blob = credentials.encrypt_credentials(
-            staging_url=staging_url,
-            username=request.credentials.username,
-            password=request.credentials.password,
-        )
+        # ENCRYPTED BEFORE THE SCAN RUNS, NOT AFTER.
+        # If the credentials cannot be protected at rest, nothing about this request
+        # should happen: not the scan, not the storage, not the charge against the
+        # customer's quota. Doing the work first and discovering the problem at save
+        # time would leave a completed Tier 2 scan whose credentials had nowhere safe
+        # to go, and the tempting fix at that point is to store them anyway.
+        #
+        # WHY THE KEY IS ONLY REQUIRED WHEN RETENTION WAS ASKED FOR.
+        # This gate used to be unconditional, which was right when every Tier 2 scan
+        # stored its credentials. It is not right now that the default stores nothing:
+        # SECUSCAN_CREDENTIALS_KEY protects data AT REST, and a scan that writes nothing
+        # to disk has no data at rest to protect. Refusing it would be failing closed on
+        # a requirement that does not apply to the request being made.
+        #
+        # The fail-closed property is unchanged where it means something. The moment a
+        # client asks for their password to be kept, an unconfigured server refuses
+        # rather than reaching for a fallback key.
+        if not request.credentials.retain:
+            encrypted_blob = None
+        else:
+            try:
+                encrypted_blob = credentials.encrypt_credentials(
+                    staging_url=staging_url,
+                    username=request.credentials.username,
+                    password=request.credentials.password,
+                )
+            except credentials.CredentialsKeyMissing:
+                # 503 RATHER THAN 500: the server is fine, the deployment is
+                # unconfigured, and that distinction is what tells an operator to go and
+                # set a variable instead of reading a stack trace. Nothing is logged
+                # here because config.startup_warnings() already names this exact
+                # variable at every single startup - a second report at request time
+                # would add no information that the operator has not already been
+                # handed.
+                #
+                # The client is told nothing about which variable is missing. An
+                # unauthenticated caller learning the server's configuration gaps is a
+                # gift to somebody mapping the deployment. They are told that the scan
+                # would run without retention, because that is actionable and reveals
+                # nothing about the server.
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Credentials cannot be stored on this server right now, so this "
+                        "scan was not run. Nothing was stored. Re-run without asking to "
+                        "keep the credentials, or contact support."
+                    ),
+                )
 
     scan = await run_scan(
         url=request.url,
@@ -407,7 +469,9 @@ async def create_scan(
     # can actually fetch back.
     stored = await database.save_scan(scan, user["id"])
     if stored and encrypted_blob:
-        # Securely persist encrypted credentials scoped to (scanId, userId) with 24h TTL
+        # Reached only when the client asked for retention - encrypted_blob is None on
+        # the default path, so the default Tier 2 scan leaves nothing behind at all.
+        # Scoped to (scanId, userId) and swept by the TTL index after 24 hours.
         await database.save_scan_credentials(
             scan_id=scan["id"],
             user_id=user["id"],
@@ -1063,6 +1127,44 @@ class PasswordChangeRequest(BaseModel):
 # request already proved knowledge of the old password, so it is not the session
 # under suspicion, and revoking it too would dump the user on /login one second after
 # succeeding.
+class SetPasswordRequest(BaseModel):
+    password: str = Field(..., description=f"At least {auth.PASSWORD_MIN_LENGTH} characters")
+
+
+@app.post("/auth/set-password")
+async def set_password(
+    request: SetPasswordRequest,
+    http_request: Request,
+    user: dict = Depends(require_session),
+) -> dict:
+    if _too_many_attempts(_client_key(http_request, "set-password")):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many attempts. Wait a few minutes and try again.",
+        )
+
+    if user.get("passwordHash"):
+        raise HTTPException(
+            status_code=400,
+            detail="This account already has a password. Use change password instead.",
+        )
+
+    problem = auth.password_problem(
+        request.password, email=user["email"], name=user["name"]
+    )
+
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+
+    await database.set_password_hash(user["id"], auth.hash_password(request.password))
+
+    updated_user = await database.find_user_by_id(user["id"])
+    if not updated_user:
+        raise HTTPException(status_code=500, detail="Failed to retrieve updated user.")
+
+    return {"set": True, "user": _public_user(updated_user)}
+
+
 @app.post("/auth/change-password")
 async def change_password(
     request: PasswordChangeRequest,
@@ -1829,6 +1931,15 @@ async def _complete_totp_setup(user: dict, code: str) -> list[str]:
 # phone, and the real owner's authenticator would simply stop working.
 @app.post("/2fa/setup")
 async def start_totp_setup(user: dict = Depends(require_session)) -> dict:
+    if not user.get("passwordHash"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This account has no SecuScan password. Set an account password "
+                "first before enabling two-factor authentication."
+            ),
+        )
+
     if _has_totp(user):
         raise HTTPException(
             status_code=409,

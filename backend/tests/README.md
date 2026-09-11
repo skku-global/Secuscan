@@ -42,12 +42,16 @@ started. These are the ones worth wiring into CI or a pre-commit hook.
 
 | suite | what it pins |
 |---|---|
-| `test_branches.py` | check verdicts for cookies and MFA, and the engine's crash handling, from synthetic `Page` / `ScanTarget` objects |
+| `test_branches.py` | check verdicts for cookies and MFA, and the engine's crash handling, from synthetic `Page` / `ScanTarget` objects — **and that no Tier 1 check module contains a POST, PUT, PATCH or DELETE**, checked against the source of every module in the registry |
 | `test_https_branches.py` | how `check_https` builds its probe URL, and its refusal semantics. Serves a real socket, all on 127.0.0.1 |
 | `test_rate_limit.py` | the passive evidence ladder — **and that the check sends no request at all** |
 | `test_password.py` | the password-policy ladder, including that composition rules earn nothing — **and again, no request** |
+| `test_reset.py` | the enumeration rule on the reset flow: a known and an unknown address get the same answer, the same failures and the same timing budget, and the decoy challenge that makes them identical is refused everywhere except the one resolver written for it |
 | `test_payments.py` | the provider seam, that a card number never reaches a result, and that a misconfigured Paddle never falls back to the mock |
 | `test_google_auth.py` | that a clock-skew tolerance is passed to google-auth and is a sane size, plus the claim checks the library does not make for us |
+| `test_credentials.py` | that Tier 2 credentials survive an encrypt/decrypt round trip, that neither half appears in the ciphertext, that a tampered token is refused rather than half-read, and that an unset key fails closed |
+| `test_tier2_retention.py` | that credential retention is opt-in and off by default, that a scan which did not ask for it stores nothing and needs no encryption key, that one which did ask is refused *before* `run_scan` on a server that cannot encrypt, and that an expired blob reads as absent rather than waiting on the TTL sweep |
+| `test_account_enumeration.py` | the Tier 2 enumeration check's verdict ladder — message, status and timing discrepancies — that it skips rather than passes when a probe never reached the authentication logic, and that no password reaches a finding |
 | `test_engine_e2e.py` | the whole engine against a deliberately imperfect fixture site on localhost |
 
 **`_path.py`** is the one-line import at the top of each suite. It puts `backend/`

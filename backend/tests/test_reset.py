@@ -596,7 +596,8 @@ section("Challenge types cannot be swapped")
 world = fresh()
 db = world[0]
 db.add_user("u1", ADDRESS, "Ada")
-login_challenge = asyncio.run(main._start_challenge("u1", "totp"))
+with alive(*world):
+    login_challenge = asyncio.run(main._start_challenge("u1", "totp"))
 
 swapped = outcome(world, login_challenge, FIXED_CODE, STRONG_PASSWORD)
 
@@ -611,24 +612,38 @@ db = world[0]
 decoy_challenge = forgot(world, ADDRESS)["challenge"]
 
 try:
-    asyncio.run(main._resolve_challenge(decoy_challenge, "reset"))
+    with alive(*world):
+        asyncio.run(main._resolve_challenge(decoy_challenge, "reset"))
     refusal = "(no exception)"
 except HTTPException as error:
     refusal = error.status_code
 
 check("_resolve_challenge refuses a userId=None challenge", refusal, 401)
 
+# AND DESTROYS IT ON THE WAY OUT. _resolve_challenge treats "no live account behind
+# this" as a dead challenge and cleans it up, which for a real user is right and for
+# the decoy is fatal: one wrong-resolver call and the address that owns it can no
+# longer be told apart from an address whose challenge never existed. That is the
+# enumeration leak arriving by the back door, and it is the whole reason the reset
+# flow is forbidden from routing through this function.
+check("  and destroys it in passing", auth.hash_token(decoy_challenge) in db.challenges, False)
+
 # _resolve_reset_challenge, the one caller that accepts it, returns None rather than
 # raising - and returns the token hash regardless, because the caller needs it to count
-# attempts on a challenge that has no user.
-user, token_hash = asyncio.run(main._resolve_reset_challenge(decoy_challenge))
+# attempts on a challenge that has no user. A fresh decoy, the previous one having just
+# been proven destroyable.
+decoy_challenge = forgot(world, ADDRESS)["challenge"]
+
+with alive(*world):
+    user, token_hash = asyncio.run(main._resolve_reset_challenge(decoy_challenge))
 
 check("_resolve_reset_challenge returns no user", user, None)
 check("  but still returns the token hash", token_hash, auth.hash_token(decoy_challenge))
 
 db.add_user("u1", ADDRESS, "Ada")
 real_challenge = forgot(world, ADDRESS)["challenge"]
-user, token_hash = asyncio.run(main._resolve_reset_challenge(real_challenge))
+with alive(*world):
+    user, token_hash = asyncio.run(main._resolve_reset_challenge(real_challenge))
 
 check("  and finds the user when there is one", user["id"] if user else None, "u1")
 

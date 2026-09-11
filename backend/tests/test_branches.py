@@ -12,7 +12,14 @@ from scanning.checks._finding import CRITICAL, PASSED, SKIPPED, WARNING
 from scanning.checks.cookies_check import check_cookies
 from scanning.checks.mfa_check import check_mfa
 from scanning.discovery import Field, Form, Page, ScanTarget
-from scanning.engine import _crash_finding, calculate_score
+import inspect
+
+from scanning.engine import (
+    TIER1_CHECKS,
+    TIER2_CHECKS,
+    _crash_finding,
+    calculate_score,
+)
 
 PASS_COUNT = 0
 FAIL_COUNT = 0
@@ -258,6 +265,46 @@ check("crash meets finding contract", [k for k in contract if k not in crash], [
 
 # A crashed check must count against the score, never as a free pass.
 check("crash costs score", calculate_score([crash]), 50)
+
+
+# =========================================================================
+print("\n--- Tier 1 is passive, and stays passive --------------------------------")
+# =========================================================================
+#
+# THE HARDEST RULE IN THIS CODEBASE, AND UNTIL NOW THE ONLY UNGUARDED ONE.
+# A Tier 1 scan runs against a site whose owner asked for a scan and nothing more. It
+# reads pages that discovery.py already fetched with GETs and it forms an opinion. It
+# does not submit forms, does not attempt logins and does not write anything, because a
+# single POST would turn an audit into an unauthorised active test of somebody else's
+# production system on a plan that never asked their permission for it.
+#
+# That rule survived on convention right up until an active check moved in next door.
+# scanning/checks/ now holds a Tier 2 check that posts login attempts on purpose, and it
+# is imported into the same module as the Tier 1 registry, a few lines above it. Moving
+# a name between those two lists is a two-second edit that reads to a reviewer as
+# bookkeeping - and until this section existed, nothing anywhere would have failed.
+#
+# So the registry is checked by NAME and the modules are checked by SOURCE. The second
+# half is the one that earns its keep: it also catches a POST added to a check that is
+# ALREADY in Tier 1, which is the version of this mistake nobody would think to look for.
+
+check("Tier 1 has the expected number of checks", len(TIER1_CHECKS), 7)
+
+_tier1_modules = {c.__name__: inspect.getmodule(c) for c in TIER1_CHECKS}
+_tier2_names = {c.__name__ for c in TIER2_CHECKS}
+
+check("the enumeration check is Tier 2", "check_account_enumeration" in _tier2_names, True)
+check("  and is nowhere in Tier 1", "check_account_enumeration" in _tier1_modules, False)
+
+for _name, _module in sorted(_tier1_modules.items()):
+    _source = inspect.getsource(_module)
+    check(f"{_name} sends no POST", ".post(" in _source, False)
+    check(f"  {_name} sends no PUT, PATCH or DELETE",
+          any(verb in _source for verb in (".put(", ".patch(", ".delete(")), False)
+
+# The tiers must not overlap at all: a check sitting in both lists would send its Tier 2
+# traffic on every Tier 1 scan.
+check("the tiers share no checks", sorted(set(_tier1_modules) & _tier2_names), [])
 
 # =========================================================================
 print(f"\n{PASS_COUNT} passed, {FAIL_COUNT} failed")

@@ -152,6 +152,8 @@ export default function Settings() {
 
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [twoFactorNotice, setTwoFactorNotice] = useState('')
+  const [sessionsNotice, setSessionsNotice] = useState('')
 
   /* A sentence confirming something that produced no visible artefact — turning 2FA
      off, changing a password. Cleared by the next action. */
@@ -264,6 +266,8 @@ export default function Settings() {
     setNewPassword('')
     setError('')
     setDone('')
+    setTwoFactorNotice('')
+    setSessionsNotice('')
   }
 
   /* --- The actions ------------------------------------------------------- */
@@ -375,6 +379,75 @@ export default function Settings() {
       )
       await refreshStatus()
     })
+  }
+
+  function submitSetPassword(event) {
+    event.preventDefault()
+
+    return run(async () => {
+      const result = await api.setPassword(newPassword)
+
+      setPanel('')
+      setPassword('')
+      setNewPassword('')
+
+      if (result.user) {
+        refreshUser(result.user)
+      }
+      await refreshStatus()
+
+      setDone(
+        'Password set successfully! You can now turn on two-factor authentication and manage signed-in devices.',
+      )
+    })
+  }
+
+  function handleStartTwoFactor() {
+    setTwoFactorNotice('')
+    setSessionsNotice('')
+    if (!hasPassword) {
+      setTwoFactorNotice('Please set an account password below before enabling two-factor authentication.')
+      setPanel('set-password')
+      setCode('')
+      setPassword('')
+      setNewPassword('')
+      setDone('')
+      setError('Please set an account password first before enabling two-factor authentication.')
+      const el = document.getElementById('password-section')
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' })
+        setTimeout(() => {
+          const input = document.getElementById('set-new-password')
+          if (input) input.focus()
+        }, 150)
+      }
+      return
+    }
+    startEnrolment()
+  }
+
+  function handleSignOutEverywhereClick() {
+    setTwoFactorNotice('')
+    setSessionsNotice('')
+    if (!hasPassword) {
+      setSessionsNotice('Please set an account password below before signing out of all devices.')
+      setPanel('set-password')
+      setCode('')
+      setPassword('')
+      setNewPassword('')
+      setDone('')
+      setError('Please set an account password first before signing out of all devices.')
+      const el = document.getElementById('password-section')
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' })
+        setTimeout(() => {
+          const input = document.getElementById('set-new-password')
+          if (input) input.focus()
+        }, 150)
+      }
+      return
+    }
+    openPanel('signout')
   }
 
   function submitPassword(event) {
@@ -985,14 +1058,6 @@ export default function Settings() {
           <p className="set-text" role="status">
             Loading your two-factor status…
           </p>
-        ) : !hasPassword ? (
-          <p className="set-text">
-            This account signs in with Google and has no SecuScan password, so there is
-            nothing here for a second factor to protect. Whatever two-step verification
-            you have on your Google account already applies — Google checks it before it
-            hands us a signed credential, and we never see your password at all. Manage
-            it in your Google account&apos;s own security settings.
-          </p>
         ) : (
           <>
             <p className="set-state">
@@ -1045,6 +1110,21 @@ export default function Settings() {
                   code you have now.
                 </p>
               </>
+            ) : !hasPassword ? (
+              <>
+                <p className="set-text">
+                  Signing in asks for a six-digit code from your authenticator app after
+                  your password. To enable two-factor authentication on SecuScan, you need
+                  to set an account password first.
+                </p>
+
+                {status.required && (
+                  <p className="auth-notice" role="status">
+                    This server requires two-factor authentication. You will be asked to
+                    set it up the next time you sign in, so it is easier to do it now.
+                  </p>
+                )}
+              </>
             ) : (
               <>
                 <p className="set-text">
@@ -1093,13 +1173,20 @@ export default function Settings() {
                   className="btn-primary"
                   type="button"
                   disabled={busy}
-                  onClick={startEnrolment}
+                  onClick={handleStartTwoFactor}
                 >
                   <Smartphone size={15} strokeWidth={2} />
                   {busy ? 'Starting…' : 'Turn on two-factor'}
                 </button>
               )}
             </div>
+
+            {twoFactorNotice && (
+              <p className="auth-error" role="alert" style={{ marginTop: 'var(--space-3)' }}>
+                <AlertCircle className="icon" size={16} strokeWidth={2} aria-hidden="true" />
+                <span>{twoFactorNotice}</span>
+              </p>
+            )}
           </>
         )}
 
@@ -1225,128 +1312,238 @@ export default function Settings() {
 
       {/* ================= 4. PASSWORD =================================== */}
 
-      {/* WHY THIS SECTION IS ABSENT RATHER THAN DISABLED for a Google account: there is
-          no SecuScan password to change, so there is nothing for the form to do. A
-          disabled form invites the question "why?"; the account section above already
-          answers it by naming Google as the sign-in method. */}
-      {hasPassword && (
-        <section className="card set-card">
-          <h2 className="set-heading">Password</h2>
+      <section className="card set-card" id="password-section">
+        <h2 className="set-heading">Password</h2>
 
-          <p className="set-text">
-            Changing it signs out your other devices automatically. This one stays signed
-            in — you have just proved you know the old password, so this is not the
-            session in doubt.
-          </p>
+        {hasPassword ? (
+          <>
+            <p className="set-text">
+              Changing it signs out your other devices automatically. This one stays signed
+              in — you have just proved you know the old password, so this is not the
+              session in doubt.
+            </p>
 
-          <div className="set-actions">
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={busy}
-              onClick={() => openPanel('password')}
-            >
-              <Lock size={15} strokeWidth={2} />
-              Change password
-            </button>
-          </div>
-
-          {panel === 'password' && (
-            <form className="auth-form set-panel" onSubmit={submitPassword}>
-              <div className="field">
-                <label className="field-label" htmlFor="set-current-password">
-                  Current password
-                </label>
-                <input
-                  className="input auth-input"
-                  id="set-current-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                  disabled={busy}
-                  autoFocus
-                />
-              </div>
-
-              <div className="field">
-                <label className="field-label" htmlFor="set-new-password">
-                  New password
-                </label>
-                <input
-                  className="input auth-input"
-                  id="set-new-password"
-                  type="password"
-                  /* "new-password", not "current-password" — this is the distinction
-                     that makes a password manager offer to GENERATE one here and to
-                     save the result, rather than filling in the old one. */
-                  autoComplete="new-password"
-                  placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`}
-                  value={newPassword}
-                  onChange={(event) => setNewPassword(event.target.value)}
-                  required
-                  disabled={busy}
-                />
-              </div>
-
-              {/* The same meter and checklist as the signup form, from the same module.
-                  [React] It appears only once there is something to check — four red
-                  crosses greeting an empty field reads as failure before the user has
-                  done anything. */}
-              {newPassword.length > 0 && (
-                <div className="pw-check">
-                  <div className="pw-meter" aria-hidden="true">
-                    <div
-                      className={`pw-meter-fill met-${strength.metCount}`}
-                      style={{ width: `${(strength.metCount / 4) * 100}%` }}
-                    />
-                  </div>
-
-                  <p className="pw-label">{strength.label}</p>
-
-                  <ul className="pw-list">
-                    {strength.requirements.map((requirement) => (
-                      <li
-                        key={requirement.id}
-                        className={requirement.met ? 'pw-met' : 'pw-unmet'}
-                      >
-                        {/* Icon AND colour, never colour alone — about one man in twelve
-                            cannot reliably tell the green from the red. */}
-                        {requirement.met ? (
-                          <Check size={14} strokeWidth={2.5} />
-                        ) : (
-                          <X size={14} strokeWidth={2.5} />
-                        )}
-                        {requirement.label}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {error && (
-                <p className="auth-error" role="alert">
-                  <AlertCircle className="icon" size={16} strokeWidth={2} aria-hidden="true" />
-                  <span>{error}</span>
-                </p>
-              )}
-
-              {/* Disabled until the browser's copy of the rules is satisfied. NOT the
-                  security control — auth.password_problem on the server is, and it runs
-                  regardless of what happened in here. This only spares the user a round
-                  trip to be told something the page already knew. */}
+            <div className="set-actions">
               <button
-                className="btn-primary"
-                type="submit"
-                disabled={busy || !password || !strength.accepted}
+                className="btn-secondary"
+                type="button"
+                disabled={busy}
+                onClick={() => openPanel('password')}
               >
-                {busy ? 'Changing…' : 'Change password'}
+                <Lock size={15} strokeWidth={2} />
+                Change password
               </button>
-            </form>
-          )}
-        </section>
-      )}
+            </div>
+
+            {panel === 'password' && (
+              <form className="auth-form set-panel" onSubmit={submitPassword}>
+                <h3 className="set-panel-title">Change password</h3>
+
+                <div className="field">
+                  <label className="field-label" htmlFor="set-current-password">
+                    Current password
+                  </label>
+                  <input
+                    className="input auth-input"
+                    id="set-current-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    required
+                    disabled={busy}
+                    autoFocus
+                  />
+                </div>
+
+                <div className="field">
+                  <label className="field-label" htmlFor="set-new-password">
+                    New password
+                  </label>
+                  <input
+                    className="input auth-input"
+                    id="set-new-password"
+                    type="password"
+                    /* "new-password", not "current-password" — this is the distinction
+                       that makes a password manager offer to GENERATE one here and to
+                       save the result, rather than filling in the old one. */
+                    autoComplete="new-password"
+                    placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`}
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    required
+                    disabled={busy}
+                  />
+                </div>
+
+                {/* The same meter and checklist as the signup form, from the same module.
+                    [React] It appears only once there is something to check — four red
+                    crosses greeting an empty field reads as failure before the user has
+                    done anything. */}
+                {newPassword.length > 0 && (
+                  <div className="pw-check">
+                    <div className="pw-meter" aria-hidden="true">
+                      <div
+                        className={`pw-meter-fill met-${strength.metCount}`}
+                        style={{ width: `${(strength.metCount / 4) * 100}%` }}
+                      />
+                    </div>
+
+                    <p className="pw-label">{strength.label}</p>
+
+                    <ul className="pw-list">
+                      {strength.requirements.map((requirement) => (
+                        <li
+                          key={requirement.id}
+                          className={requirement.met ? 'pw-met' : 'pw-unmet'}
+                        >
+                          {/* Icon AND colour, never colour alone — about one man in twelve
+                              cannot reliably tell the green from the red. */}
+                          {requirement.met ? (
+                            <Check size={14} strokeWidth={2.5} />
+                          ) : (
+                            <X size={14} strokeWidth={2.5} />
+                          )}
+                          {requirement.label}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {error && (
+                  <p className="auth-error" role="alert">
+                    <AlertCircle className="icon" size={16} strokeWidth={2} aria-hidden="true" />
+                    <span>{error}</span>
+                  </p>
+                )}
+
+                {/* Disabled until the browser's copy of the rules is satisfied. NOT the
+                    security control — auth.password_problem on the server is, and it runs
+                    regardless of what happened in here. This only spares the user a round
+                    trip to be told something the page already knew. */}
+                <div className="set-actions">
+                  <button
+                    className="btn-primary"
+                    type="submit"
+                    disabled={busy || !password || !strength.accepted}
+                  >
+                    {busy ? 'Changing…' : 'Change password'}
+                  </button>
+
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => openPanel('')}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="set-text">
+              This account signs in with Google and has no SecuScan password yet. Set an
+              account password to enable two-factor authentication, sign out of all devices,
+              or sign in directly with your email and password.
+            </p>
+
+            <div className="set-actions">
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={busy}
+                onClick={() => openPanel('set-password')}
+              >
+                <Lock size={15} strokeWidth={2} />
+                Set password
+              </button>
+            </div>
+
+            {panel === 'set-password' && (
+              <form className="auth-form set-panel" onSubmit={submitSetPassword}>
+                <h3 className="set-panel-title">Set an account password</h3>
+
+                <div className="field">
+                  <label className="field-label" htmlFor="set-new-password">
+                    New password
+                  </label>
+                  <input
+                    className="input auth-input"
+                    id="set-new-password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`}
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    required
+                    disabled={busy}
+                    autoFocus
+                  />
+                </div>
+
+                {newPassword.length > 0 && (
+                  <div className="pw-check">
+                    <div className="pw-meter" aria-hidden="true">
+                      <div
+                        className={`pw-meter-fill met-${strength.metCount}`}
+                        style={{ width: `${(strength.metCount / 4) * 100}%` }}
+                      />
+                    </div>
+
+                    <p className="pw-label">{strength.label}</p>
+
+                    <ul className="pw-list">
+                      {strength.requirements.map((requirement) => (
+                        <li
+                          key={requirement.id}
+                          className={requirement.met ? 'pw-met' : 'pw-unmet'}
+                        >
+                          {requirement.met ? (
+                            <Check size={14} strokeWidth={2.5} />
+                          ) : (
+                            <X size={14} strokeWidth={2.5} />
+                          )}
+                          {requirement.label}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {error && (
+                  <p className="auth-error" role="alert">
+                    <AlertCircle className="icon" size={16} strokeWidth={2} aria-hidden="true" />
+                    <span>{error}</span>
+                  </p>
+                )}
+
+                <div className="set-actions">
+                  <button
+                    className="btn-primary"
+                    type="submit"
+                    disabled={busy || !strength.accepted}
+                  >
+                    {busy ? 'Saving…' : 'Set password'}
+                  </button>
+
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => openPanel('')}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </>
+        )}
+      </section>
 
       {/* ================= 5. SESSIONS =================================== */}
 
@@ -1369,69 +1566,82 @@ export default function Settings() {
           you are reading this on cannot be assumed clean.
         </p>
 
-        {!hasPassword ? (
-          <p className="set-text">
-            This account signs in with Google, so SecuScan has no password to check
-            before doing something this disruptive. Use your Google account&apos;s
-            &ldquo;sign out of all sessions&rdquo; instead — it revokes the credential we
-            rely on.
+        {!hasPassword && (
+          <p className="set-text" style={{ marginTop: 'var(--space-3)' }}>
+            This account signs in with Google and has no SecuScan password yet. To protect against unauthorised sign-outs, you must set an account password first before signing out of all devices.
           </p>
-        ) : (
-          <>
+        )}
+
+        <div className="set-actions">
+          <button
+            className="btn-secondary"
+            type="button"
+            disabled={busy}
+            onClick={handleSignOutEverywhereClick}
+          >
+            <LogOut size={15} strokeWidth={2} />
+            Sign out everywhere
+          </button>
+        </div>
+
+        {sessionsNotice && (
+          <p className="auth-error" role="alert" style={{ marginTop: 'var(--space-3)' }}>
+            <AlertCircle className="icon" size={16} strokeWidth={2} aria-hidden="true" />
+            <span>{sessionsNotice}</span>
+          </p>
+        )}
+
+        {panel === 'signout' && (
+          <form className="auth-form set-panel" onSubmit={signOutEverywhere}>
+            <h3 className="set-panel-title">Sign out of every device</h3>
+
+            <div className="field">
+              <label className="field-label" htmlFor="set-signout-password">
+                Your password
+              </label>
+              <input
+                className="input auth-input"
+                id="set-signout-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                disabled={busy}
+                autoFocus
+              />
+            </div>
+
+            {/* WHY A PASSWORD FOR AN ACTION THAT ONLY REMOVES ACCESS: without it,
+                anyone holding a stolen session could sign the real owner out of
+                every device and keep working — a denial of service against the
+                account's owner, performed with the account's own security feature. */}
+            <p className="auth-fine">
+              Required so that a stolen session cannot use this to lock you out.
+            </p>
+
+            {error && (
+              <p className="auth-error" role="alert">
+                <AlertCircle className="icon" size={16} strokeWidth={2} aria-hidden="true" />
+                <span>{error}</span>
+              </p>
+            )}
+
             <div className="set-actions">
+              <button className="btn-primary" type="submit" disabled={busy || !password}>
+                {busy ? 'Signing out…' : 'Sign out of every device'}
+              </button>
+
               <button
                 className="btn-secondary"
                 type="button"
                 disabled={busy}
-                onClick={() => openPanel('signout')}
+                onClick={() => openPanel('')}
               >
-                <LogOut size={15} strokeWidth={2} />
-                Sign out everywhere
+                Cancel
               </button>
             </div>
-
-            {panel === 'signout' && (
-              <form className="auth-form set-panel" onSubmit={signOutEverywhere}>
-                <h3 className="set-panel-title">Sign out of every device</h3>
-
-                <div className="field">
-                  <label className="field-label" htmlFor="set-signout-password">
-                    Your password
-                  </label>
-                  <input
-                    className="input auth-input"
-                    id="set-signout-password"
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    required
-                    disabled={busy}
-                    autoFocus
-                  />
-                </div>
-
-                {/* WHY A PASSWORD FOR AN ACTION THAT ONLY REMOVES ACCESS: without it,
-                    anyone holding a stolen session could sign the real owner out of
-                    every device and keep working — a denial of service against the
-                    account's owner, performed with the account's own security feature. */}
-                <p className="auth-fine">
-                  Required so that a stolen session cannot use this to lock you out.
-                </p>
-
-                {error && (
-                  <p className="auth-error" role="alert">
-                    <AlertCircle className="icon" size={16} strokeWidth={2} aria-hidden="true" />
-                    <span>{error}</span>
-                  </p>
-                )}
-
-                <button className="btn-primary" type="submit" disabled={busy || !password}>
-                  {busy ? 'Signing out…' : 'Sign out everywhere'}
-                </button>
-              </form>
-            )}
-          </>
+          </form>
         )}
       </section>
 

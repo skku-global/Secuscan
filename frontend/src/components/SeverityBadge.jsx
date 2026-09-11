@@ -6,6 +6,8 @@
    looks like, so the colours can never disagree between pages.
    ========================================================================== */
 
+import { isUnverified } from '../lib/findings'
+
 /* Maps the raw data value to the text a human reads.
    [General] A plain lookup object is the standard alternative to a long
    if/else chain — it works the same in any language with dictionaries. */
@@ -31,8 +33,32 @@ const STYLES = {
   },
 }
 
-/* `severity` is one of: 'critical' | 'warning' | 'passed' | 'skipped' | 'info' */
-export default function SeverityBadge({ severity }) {
+/* `severity` is one of: 'critical' | 'warning' | 'passed' | 'skipped' | 'info'
+
+   `tier` is optional and only ever changes ONE case: a Tier 2 check that came
+   back skipped. See below for why that case cannot be allowed to share a pill
+   with the Tier 1 one. Callers that do not pass a tier get exactly the previous
+   behaviour, which is what keeps this safe to add to a component used on four
+   pages. */
+export default function SeverityBadge({ severity, tier }) {
+  /* THE ONE THAT MATTERS.
+
+     'skipped' arrives from both tiers and means the opposite thing in each. A
+     Tier 1 skip is "there was no login page, so there was nothing to look at" —
+     nothing was withheld and nothing can be done. A Tier 2 skip is "a CSRF
+     token, a WAF or a rate limiter turned the probes away before they reached
+     your authentication logic" — a control the client paid to have verified was
+     NOT verified, and there is a concrete step that would fix that.
+
+     A grey pill reading "Skipped" is the correct label for the first and a quiet
+     misfiling of the second. This is the same failure the check itself guards
+     against in the backend, where identical blocked responses are refused a PASS
+     because a wall is not a clean bill of health. The guard is worth nothing if
+     the UI puts the result back in the drawer marked "not applicable". */
+  if (isUnverified({ severity, tier })) {
+    return <span className="badge unverified">Not verified</span>
+  }
+
   return (
     // [React] A TEMPLATE LITERAL (backticks with ${...}) builds the class name
     // by pasting the severity value straight in, producing e.g. "badge critical".

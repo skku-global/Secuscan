@@ -282,7 +282,10 @@ def paddle_price_id(plan_id: str) -> str:
 # --- Tier 2 Credentials ----------------------------------------------------
 
 # Fernet symmetric encryption key for encrypting client-submitted test credentials
-# at rest. If unset, a deterministic local development key is used with a warning.
+# at rest. If unset, nothing is encrypted and nothing is stored: a Tier 2 scan that
+# asked for its credentials to be retained is refused, and one that did not runs
+# normally. There is no development fallback - see the note at the top of
+# credentials.py for why a key committed to the repository is worse than no key.
 CREDENTIALS_KEY = _text("SECUSCAN_CREDENTIALS_KEY")
 
 
@@ -393,6 +396,22 @@ def startup_warnings() -> list[str]:
             'provider. Expected "mock" or "paddle". Checkout is disabled - it '
             "does NOT fall back to the mock, because granting paid plans for "
             "free is not a degraded mode."
+        )
+
+    # WHY A MISSING CREDENTIALS KEY IS REPORTED EVEN THOUGH NOTHING IS BROKEN YET
+    # Tier 1 does not need this key, so a server without it starts, serves, and looks
+    # entirely healthy - right up until the first Tier 2 scan, which is refused. Saying
+    # so at startup turns a paying customer's failed scan into a line the operator has
+    # already read. It does NOT fall back to a built-in key: see the note at the top of
+    # credentials.py on why an unset key fails closed instead.
+    if not CREDENTIALS_KEY.strip():
+        warnings.append(
+            "SECUSCAN_CREDENTIALS_KEY is not set, so Tier 2 scans that ask to retain "
+            "credentials are refused with 503 - they cannot be encrypted at rest. "
+            "Tier 2 scans without retention still run, since they store nothing, and "
+            "Tier 1 is unaffected. Generate a key with: python -c "
+            '"from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"'
         )
 
     return warnings

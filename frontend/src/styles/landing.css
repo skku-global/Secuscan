@@ -536,3 +536,29 @@
 
   .value-grid { gap: var(--space-3); margin-bottom: var(--space-12); }
 }
+
+
+/* The Tier 2 retention opt-in. Sits between the credential fields and the
+   sentence describing what happens to them, because the sentence changes
+   depending on this checkbox and the two belong to each other. */
+.tier-retain-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tier-retain-row input[type='checkbox'] {
+  margin-top: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.tier-retain-row strong {
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}

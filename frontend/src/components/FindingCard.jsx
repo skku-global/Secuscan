@@ -43,8 +43,10 @@ import {
   HelpCircle,
   Info,
   MinusCircle,
+  SearchX,
 } from 'lucide-react'
 import SeverityBadge from './SeverityBadge'
+import { isUnverified } from '../lib/findings'
 
 /* Which Lucide icon represents each severity.
    [General] Lookup object again — same pattern as SeverityBadge's LABELS.
@@ -84,8 +86,23 @@ export default function FindingCard({ finding }) {
   /* [React] Capitalised because JSX treats lowercase names as HTML tags and
      capitalised names as components. `Icon` must be capital-I to render below.
      Defaults to DEFAULT_ICON so unknown/unhandled severities never produce `undefined`. */
-  const Icon = ICONS[finding?.severity] || DEFAULT_ICON
   const severity = finding?.severity || 'unknown'
+
+  /* A Tier 2 check that was blocked before it reached the authentication logic
+     gets its own icon and its own colour, for the reason set out at length in
+     SeverityBadge: it shares the severity value 'skipped' with a Tier 1 check
+     that had nothing to look at, and it does not share the meaning. A magnifying
+     glass with a cross says "we looked and could not get an answer", which is
+     what happened; the grey minus used for the Tier 1 case says "not
+     applicable", which is the one reading that is wrong. */
+  const unverified = isUnverified(finding)
+  const Icon = unverified ? SearchX : ICONS[severity] || DEFAULT_ICON
+
+  const iconStyle = unverified
+    ? { color: 'var(--warning)' }
+    : severity === 'skipped'
+      ? { color: 'var(--muted)' }
+      : undefined
 
   return (
     /* The wrapper is a plain <div>. It carries the row's border and hover tint —
@@ -118,7 +135,7 @@ export default function FindingCard({ finding }) {
         {/* Severity icon, tinted by the same class-name trick as the badge. */}
         <Icon
           className={`icon ${severity}`}
-          style={severity === 'skipped' ? { color: 'var(--muted)' } : undefined}
+          style={iconStyle}
           size={18}
           strokeWidth={2}
           aria-hidden="true"
@@ -134,7 +151,7 @@ export default function FindingCard({ finding }) {
           <span className="finding-desc">{finding.description}</span>
         </div>
 
-        <SeverityBadge severity={finding.severity} />
+        <SeverityBadge severity={finding.severity} tier={finding.tier} />
 
         {/* THE CHEVRON — a deliberate change from the mockup, which ends each row
             at the severity badge.

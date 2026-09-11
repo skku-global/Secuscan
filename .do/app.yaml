@@ -1,0 +1,88 @@
+name: secuscan
+region: nyc
+
+services:
+  - name: backend
+    source_dir: /backend
+    dockerfile_path: backend/Dockerfile
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      # In DigitalOcean App Platform, routes strip the path prefix by default (preserve_path_prefix: false).
+      # Requests to https://${APP_URL}/api/xyz arrive at FastAPI as /xyz, matching main.py routes directly.
+      - path: /api
+    health_check:
+      http_path: /auth/config
+      initial_delay_seconds: 10
+      period_seconds: 15
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    envs:
+      # --- Database -------------------------------------------------------------
+      # DigitalOcean does not offer managed MongoDB; supply external connection string (e.g. Atlas).
+      - key: SECUSCAN_MONGO_URL
+        type: SECRET
+        value: "mongodb+srv://<db_user>:<db_password>@<cluster>.mongodb.net/secuscan?retryWrites=true&w=majority"
+
+      # --- Product Identity & Origin --------------------------------------------
+      - key: SECUSCAN_APP_NAME
+        value: "SecuScan"
+      - key: SECUSCAN_APP_URL
+        value: "${APP_URL}"
+      - key: SECUSCAN_CORS_ORIGINS
+        value: "${APP_URL}"
+
+      # --- Authentication & 2FA -------------------------------------------------
+      - key: SECUSCAN_REQUIRE_2FA
+        value: "false"
+      - key: SECUSCAN_GOOGLE_CLIENT_ID
+        value: "your-google-oauth-client-id.apps.googleusercontent.com"
+
+      # --- Email Delivery (Resend) ----------------------------------------------
+      - key: SECUSCAN_EMAIL_PROVIDER
+        value: "resend"
+      - key: RESEND_API_KEY
+        type: SECRET
+        value: "re_your_resend_api_key_placeholder"
+      - key: SECUSCAN_EMAIL_FROM
+        value: "SecuScan <security@yourdomain.com>"
+
+      # --- Payments (Paddle / Mock) ---------------------------------------------
+      - key: SECUSCAN_PAYMENT_PROVIDER
+        value: "mock"
+      - key: SECUSCAN_PADDLE_SANDBOX
+        value: "true"
+      - key: SECUSCAN_PADDLE_CLIENT_TOKEN
+        value: "test_client_token_placeholder"
+      - key: SECUSCAN_PADDLE_API_KEY
+        type: SECRET
+        value: "paddle_api_key_placeholder"
+      - key: SECUSCAN_PADDLE_WEBHOOK_SECRET
+        type: SECRET
+        value: "paddle_webhook_secret_placeholder"
+      - key: SECUSCAN_PADDLE_PRICE_STARTER
+        value: "pri_starter_plan_id_placeholder"
+      - key: SECUSCAN_PADDLE_PRICE_BUSINESS
+        value: "pri_business_plan_id_placeholder"
+
+      # --- Tier 2 Credentials Encryption ----------------------------------------
+      # 32 url-safe base64-encoded bytes (Fernet key).
+      # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      - key: SECUSCAN_CREDENTIALS_KEY
+        type: SECRET
+        value: "generate_fernet_key_placeholder"
+
+static_sites:
+  - name: frontend
+    source_dir: /frontend
+    build_command: npm run build
+    output_dir: dist
+    routes:
+      - path: /
+    envs:
+      # Built into the Vite bundle at build time.
+      # Points to the backend component via App Platform ingress route /api.
+      - key: VITE_API_URL
+        value: "${APP_URL}/api"

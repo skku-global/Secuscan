@@ -32,6 +32,7 @@ import json
 import logging
 import re
 import time
+from statistics import median
 from urllib.parse import urljoin
 from uuid import uuid4
 
@@ -57,11 +58,48 @@ USER_NOT_FOUND_HINTS = re.compile(
     re.I,
 )
 
+# Responses that mean the probe was turned away before the application ever looked up
+# an account. These are the false-PASS family: they come back identical for both
+# probes, which is this check's success condition, while testing nothing whatsoever.
+BLOCKED_HINTS = re.compile(
+    r"(csrf|xsrf|forbidden|access denied|too many requests|rate limit|"
+    r"are you a robot|captcha|request blocked|not allowed)",
+    re.I,
+)
+
 WRONG_PASSWORD_HINTS = re.compile(
     r"(incorrect password|wrong password|invalid password|bad password|"
     r"password does not match|password is incorrect)",
     re.I,
 )
+
+
+# Statuses that mean the request was turned away before any account lookup happened.
+# Both probes get the same one, which is indistinguishable from a clean pass unless it
+# is checked for explicitly.
+_PRE_AUTH_STATUSES = frozenset({403, 405, 419, 429, 501, 502, 503, 504})
+
+
+def _mask_account(value: str) -> str:
+    """Mask a client-supplied test account identifier for report evidence.
+
+    The client supplied this address and the report goes back to the client, so this
+    is not a secrecy boundary so much as a hygiene one: a scan report is a document
+    that gets forwarded, pasted into tickets and archived, and half of a credential
+    pair does not need to be legible in it for the reader to know which account was
+    tested. The domain is kept because that is the part that identifies the system.
+    """
+    value = (value or "").strip()
+
+    if "@" in value:
+        local, _, domain = value.partition("@")
+        head = local[:2] if len(local) > 2 else local[:1]
+        return f"{head}{'*' * max(len(local) - len(head), 1)}@{domain}"
+
+    if len(value) <= 2:
+        return "*" * len(value)
+
+    return f"{value[:2]}{'*' * (len(value) - 2)}"
 
 
 def _extract_error_message(response: httpx.Response) -> str:
@@ -146,34 +184,61 @@ async def check_account_enumeration(target) -> dict:
     payload_existing = {**extra_fields, username_field: username, password_field: dummy_password}
     payload_nonexistent = {**extra_fields, username_field: nonexistent_user, password_field: dummy_password}
 
+    # WHY THE TIMING IS SAMPLED MORE THAN ONCE, AND WHY THE PROBES ALTERNATE
+    # An earlier version of this check timed a single request of each and raised a
+    # finding when they differed by more than 250ms. Two things made that unsound.
+    #
+    # The first request over a new connection pays for DNS, the TCP handshake and the
+    # TLS handshake - and the existing-account probe was always the one that sent it.
+    # So it was systematically the slower of the two, in precisely the direction that
+    # raises this finding: the check manufactured its own evidence. On top of that, a
+    # single sample of anything crossing a network varies by more than 250ms on its
+    # own often enough to be worthless as a signal.
+    #
+    # So one throwaway request warms the connection and is not measured, the two probes
+    # then alternate, and the verdict is taken on the MEDIAN of each set - which
+    # discards a single outlier instead of reporting it.
+    #
+    # THE SAMPLE COUNT IS DELIBERATELY SMALL. Every existing-account round is a failed
+    # login against a real account, and enough failed logins in a row will trip a
+    # lockout policy - which would invalidate this check AND leave the client's test
+    # account unusable for the rest of the scan. Three is enough for a median to throw
+    # away one outlier and few enough to stay under the usual lockout thresholds.
+    ROUNDS = 3
+
+    times_existing: list[float] = []
+    times_nonexistent: list[float] = []
+    res_existing = None
+    res_nonexistent = None
+
     async with httpx.AsyncClient(
         timeout=TIMEOUT_SECONDS,
         headers={"User-Agent": USER_AGENT, "Accept": "application/json, text/html"},
         follow_redirects=False,
     ) as client:
-        try:
-            # Probe 1: Known existing test account
-            t0 = time.perf_counter()
-            if method == "POST":
-                # Try sending JSON if endpoint looks like an API, otherwise standard form-encoded
-                if "/api/" in submit_url or "json" in submit_url:
-                    res_existing = await client.post(submit_url, json=payload_existing)
-                else:
-                    res_existing = await client.post(submit_url, data=payload_existing)
-            else:
-                res_existing = await client.get(submit_url, params=payload_existing)
-            dur_existing = time.perf_counter() - t0
 
-            # Probe 2: Randomized nonexistent account
-            t0 = time.perf_counter()
+        async def send(payload):
             if method == "POST":
+                # Send JSON if the endpoint looks like an API, otherwise form-encoded.
                 if "/api/" in submit_url or "json" in submit_url:
-                    res_nonexistent = await client.post(submit_url, json=payload_nonexistent)
-                else:
-                    res_nonexistent = await client.post(submit_url, data=payload_nonexistent)
-            else:
-                res_nonexistent = await client.get(submit_url, params=payload_nonexistent)
-            dur_nonexistent = time.perf_counter() - t0
+                    return await client.post(submit_url, json=payload)
+                return await client.post(submit_url, data=payload)
+            return await client.get(submit_url, params=payload)
+
+        try:
+            # Warm-up, not measured. It deliberately uses the NONEXISTENT account, so
+            # paying for the handshake does not cost the client's real test account an
+            # extra failed login.
+            await send(payload_nonexistent)
+
+            for _ in range(ROUNDS):
+                t0 = time.perf_counter()
+                res_existing = await send(payload_existing)
+                times_existing.append(time.perf_counter() - t0)
+
+                t0 = time.perf_counter()
+                res_nonexistent = await send(payload_nonexistent)
+                times_nonexistent.append(time.perf_counter() - t0)
 
         except httpx.RequestError as exc:
             return _build_finding(
@@ -184,6 +249,9 @@ async def check_account_enumeration(target) -> dict:
                 fix="Verify the staging URL or login URL is reachable and accepts test connections.",
                 evidence={"endpoint": submit_url, "error": str(exc)},
             )
+
+    dur_existing = median(times_existing)
+    dur_nonexistent = median(times_nonexistent)
 
     msg_existing = _extract_error_message(res_existing)
     msg_nonexistent = _extract_error_message(res_nonexistent)
@@ -200,7 +268,8 @@ async def check_account_enumeration(target) -> dict:
         "endpoint": submit_url,
         "method": method,
         "usernameField": username_field,
-        "testedExistingUser": username,
+        "testedExistingUser": _mask_account(username),
+        "timingSamplesPerAccount": ROUNDS,
         "statusCodeExisting": res_existing.status_code,
         "statusCodeNonexistent": res_nonexistent.status_code,
         "messageExisting": msg_existing[:150],
@@ -209,6 +278,55 @@ async def check_account_enumeration(target) -> dict:
         "timingNonexistentMs": round(dur_nonexistent * 1000, 1),
         "timingDeltaMs": round(timing_delta_ms, 1),
     }
+
+    # WHY THERE IS A GUARD IN FRONT OF THE VERDICTS
+    # Two identical responses are this check's PASS condition, and there is a whole
+    # family of ways to get two identical responses that say nothing about account
+    # enumeration at all: a CSRF token this check did not carry, a WAF, a rate limiter
+    # that engaged partway through the rounds above, or a URL that was never the login
+    # endpoint in the first place. Every one of those turns BOTH probes away before the
+    # application ever looks up an account.
+    #
+    # Reporting that as "no account enumeration detected" is the worst thing this file
+    # can do. A finding that says a control was verified when in truth nothing was
+    # tested is more damaging than no finding at all, because it is the point at which
+    # the client stops looking. So an endpoint that was never reached is SKIPPED, and
+    # the finding says which wall the probes hit.
+    blocked_status = (
+        res_existing.status_code == res_nonexistent.status_code
+        and res_existing.status_code in _PRE_AUTH_STATUSES
+    )
+    blocked_text = bool(
+        BLOCKED_HINTS.search(msg_existing) and BLOCKED_HINTS.search(msg_nonexistent)
+    )
+
+    if blocked_status or blocked_text:
+        return _build_finding(
+            severity=SKIPPED,
+            title="Authentication endpoint could not be tested",
+            description=(
+                "Both enumeration probes were rejected before reaching the "
+                "authentication logic, so account enumeration was not tested"
+            ),
+            explanation=(
+                f"Both probes to {submit_url} were turned away identically "
+                f"(HTTP {res_existing.status_code}) without the application appearing to "
+                "look up an account.\n\n"
+                "This usually means one of: the endpoint requires a CSRF token or nonce "
+                "that this check does not carry, a WAF or bot filter intercepted the "
+                "request, rate limiting engaged during the probe rounds, or the URL "
+                "tested is not the login endpoint.\n\n"
+                "This is reported as skipped rather than passed on purpose. Identical "
+                "responses are what a passing result looks like, and reporting a wall "
+                "as a clean bill of health would be actively misleading."
+            ),
+            fix=(
+                "Provide a direct authentication endpoint in the Tier 2 access form, or "
+                "allowlist the scanner's source address for the duration of the scan, so "
+                "the probes reach the authentication logic."
+            ),
+            evidence=evidence,
+        )
 
     # Case 1: Direct message discrepancy (e.g. "User not found" vs "Incorrect password")
     if text_diff or (has_not_found_hint and not has_wrong_pw_hint):
@@ -233,7 +351,14 @@ async def check_account_enumeration(target) -> dict:
         )
 
     # Case 2: Status code discrepancy (e.g. 401 for wrong password, 404 for wrong user)
-    if status_diff and res_existing.status_code != 200 and res_nonexistent.status_code != 200:
+    # THE 200 RESPONSE IS NOT AN EXCEPTION. An earlier version required BOTH statuses
+    # to be non-200 before reporting a discrepancy, which quietly excluded the single
+    # most blatant shape this leak takes: 200 for one account and 401 or 302 for the
+    # other. When both probes are 200 there is no discrepancy to report anyway, so the
+    # condition only ever suppressed the case worth reporting. Both probes sent the
+    # same wrong password; the only variable is whether the account exists, so any
+    # difference in status is attributable to that.
+    if status_diff:
         return _build_finding(
             severity=WARNING,
             title="Account enumeration via HTTP status codes",

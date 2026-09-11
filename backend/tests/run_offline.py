@@ -31,8 +31,12 @@ SUITES = [
     "test_https_branches.py",
     "test_rate_limit.py",
     "test_password.py",
+    "test_reset.py",
     "test_payments.py",
     "test_google_auth.py",
+    "test_credentials.py",
+    "test_tier2_retention.py",
+    "test_account_enumeration.py",
     "test_engine_e2e.py",
 ]
 

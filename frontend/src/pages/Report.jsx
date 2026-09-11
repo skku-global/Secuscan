@@ -15,22 +15,49 @@
 
 import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate, useParams, Link } from 'react-router-dom'
-import { Shield, Download, AlertTriangle, CheckCircle2, FileSearch } from 'lucide-react'
+import {
+  Shield,
+  Download,
+  AlertTriangle,
+  CheckCircle2,
+  FileSearch,
+  HelpCircle,
+  Info,
+  MinusCircle,
+  SearchX,
+} from 'lucide-react'
 
 import ScoreGauge from '../components/ScoreGauge'
 import SeverityBadge from '../components/SeverityBadge'
 import ReportSkeleton from '../components/ReportSkeleton'
 import { useScan } from '../hooks/useScan'
-import { sortBySeverity } from '../lib/findings'
+import { groupByTier, isUnverified } from '../lib/findings'
 import { formatAbsoluteDate } from '../lib/formatDate'
 import '../styles/scanResult.css'
 import '../styles/report.css'
 
+/* THIS MAP USED TO HAVE THREE ENTRIES AND NO FALLBACK, AND THAT WAS A CRASH.
+
+   `const Icon = ICONS[finding.severity]` returns undefined for any severity not
+   listed, and rendering <Icon /> when Icon is undefined throws "Element type is
+   invalid" — React unmounts the tree and the reader gets a blank page, not a
+   degraded one. 'skipped' has been emitted by the engine since the first Tier 1
+   scan that could not locate a login page, so every report containing one was a
+   white screen on the single page most likely to be forwarded to someone else.
+
+   FindingCard already had DEFAULT_ICON for exactly this reason. This file is the
+   copy that did not. Both the missing entries and the fallback are here now: the
+   entries so the icon is right, the fallback so the next severity added to the
+   backend is a wrong icon rather than a broken page. */
 const ICONS = {
   critical: AlertTriangle,
   warning: AlertTriangle,
   passed: CheckCircle2,
+  skipped: MinusCircle,
+  info: Info,
 }
+
+const DEFAULT_ICON = HelpCircle
 
 export default function Report() {
   /* [React] Same useParams() + useScan sequence as ScanResult. Two pages
@@ -134,7 +161,13 @@ export default function Report() {
     )
   }
 
-  const orderedFindings = sortBySeverity(scan.findings)
+  /* Grouped rather than one flat severity-ranked list. A Tier 1 pass says "this
+     looked right from outside"; a Tier 2 pass says "we signed in and confirmed
+     it". Those are different claims, and interleaving them presents the weaker
+     one with the authority of the stronger. groupByTier drops empty groups, so a
+     Tier 1 scan still renders as a single uninterrupted list. */
+  const tierGroups = groupByTier(scan.findings)
+  const showTierHeadings = tierGroups.length > 1
 
   return (
     <div className="container report-page">
@@ -161,46 +194,90 @@ export default function Report() {
 
         <ScoreGauge score={scan.score} findings={scan.findings} />
 
-        <p className="section-label">Findings, critical first</p>
+        {!showTierHeadings && (
+          <p className="section-label">Findings, critical first</p>
+        )}
 
-        <div className="report-findings">
-          {orderedFindings.map((finding) => {
-            const Icon = ICONS[finding.severity]
+        {tierGroups.map((group) => (
+          <section className="report-tier-group" key={group.tier}>
+            {showTierHeadings && (
+              /* The heading carries the blurb because the tier number alone is
+                 internal vocabulary. A reader who has been forwarded this
+                 document has never seen the pricing page and has no reason to
+                 know what "Tier 2" buys — but they do need to know that one
+                 half of it was observed from the street and the other half from
+                 inside the building. */
+              <div className="report-tier-heading">
+                <p className="section-label">
+                  {group.label}
+                  <span className="report-tier-count">
+                    {group.findings.length} {group.findings.length === 1 ? 'check' : 'checks'}
+                  </span>
+                </p>
+                <p className="report-tier-blurb">{group.blurb}</p>
+              </div>
+            )}
 
-            return (
-              /* Not a button — nothing here is clickable, because everything is
-                 already open. [General] Only use interactive elements for things
-                 that are genuinely interactive. */
-              <article className="report-finding" key={finding.id}>
-                <div className="finding-head">
-                  <Icon
-                    className={`icon ${finding.severity}`}
-                    size={18}
-                    strokeWidth={2}
-                  />
-                  <div className="finding-body">
-                    <div className="finding-title-row">
-                      <p className="finding-title">{finding.title}</p>
-                      {finding.tier === 2 && (
-                        <span className="finding-tier-tag tier-2">Tier 2</span>
-                      )}
+            <div className="report-findings">
+              {group.findings.map((finding) => {
+                const unverified = isUnverified(finding)
+                const Icon = unverified
+                  ? SearchX
+                  : ICONS[finding.severity] || DEFAULT_ICON
+
+                return (
+                  /* Not a button — nothing here is clickable, because everything is
+                     already open. [General] Only use interactive elements for things
+                     that are genuinely interactive. */
+                  <article
+                    className={`report-finding ${unverified ? 'is-unverified' : ''}`}
+                    key={finding.id}
+                  >
+                    <div className="finding-head">
+                      <Icon
+                        className={`icon ${finding.severity}`}
+                        style={unverified ? { color: 'var(--warning)' } : undefined}
+                        size={18}
+                        strokeWidth={2}
+                      />
+                      <div className="finding-body">
+                        <div className="finding-title-row">
+                          <p className="finding-title">{finding.title}</p>
+                          {finding.tier === 2 && (
+                            <span className="finding-tier-tag tier-2">Tier 2</span>
+                          )}
+                        </div>
+                        <p className="finding-desc">{finding.description}</p>
+                      </div>
+                      <SeverityBadge severity={finding.severity} tier={finding.tier} />
                     </div>
-                    <p className="finding-desc">{finding.description}</p>
-                  </div>
-                  <SeverityBadge severity={finding.severity} />
-                </div>
 
-                <div className="finding-detail">
-                  <p className="detail-label">Why this matters</p>
-                  <p className="detail-text">{finding.explanation}</p>
+                    <div className="finding-detail">
+                      {/* An unverified check has no "why this matters" in the sense
+                          the other findings do — the honest first line is that no
+                          conclusion was reached. Saying so above the explanation
+                          stops a skim-reader filing it as a pass. */}
+                      {unverified && (
+                        <p className="report-unverified-note">
+                          This check did not complete, so it is neither a pass nor a
+                          failure. The control below remains unconfirmed.
+                        </p>
+                      )}
 
-                  <p className="detail-label">Suggested fix</p>
-                  <p className="detail-text">{finding.fix}</p>
-                </div>
-              </article>
-            )
-          })}
-        </div>
+                      <p className="detail-label">Why this matters</p>
+                      <p className="detail-text">{finding.explanation}</p>
+
+                      <p className="detail-label">
+                        {unverified ? 'What would let this run' : 'Suggested fix'}
+                      </p>
+                      <p className="detail-text">{finding.fix}</p>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          </section>
+        ))}
 
         {/* NO LONGER A MOCK. window.print() opens the browser's own print
             dialogue, which on every current browser offers "Save as PDF" as a

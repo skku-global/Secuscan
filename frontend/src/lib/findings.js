@@ -41,9 +41,15 @@ export function countBySeverity(findings, severity) {
    Sorting here rather than relying on the order the engine happened to emit means
    adding a check to CHECKS in engine.py cannot reorder anyone's report.
 -------------------------------------------------------------------------------*/
-const SEVERITY_RANK = { critical: 0, warning: 1, passed: 2 }
+const SEVERITY_RANK = { critical: 0, warning: 1, passed: 2, skipped: 3 }
 
-/* An unrecognised severity sorts last rather than first. Without this, a typo or
+/* 'skipped' is listed above rather than left to fall through to UNKNOWN_RANK.
+   Both put it at the end, so this changes no output - but UNKNOWN_RANK is
+   described below as the slot for a severity the frontend has not learned about
+   yet, and skipped is one the backend has emitted since the first Tier 1 scan
+   that could not find a login page. Naming it makes the position a decision.
+
+   An unrecognised severity sorts last rather than first. Without this, a typo or
    a new severity the frontend has not learned yet produces NaN from the
    subtraction below, and a comparator returning NaN leaves the array in an
    arbitrary order — so one unknown value would scramble the whole report rather
@@ -61,4 +67,71 @@ export function sortBySeverity(findings) {
       (SEVERITY_RANK[a.severity] ?? UNKNOWN_RANK) -
       (SEVERITY_RANK[b.severity] ?? UNKNOWN_RANK),
   )
+}
+
+/* ----------------------------------------------------------------------------
+   TIER GROUPING — which findings came from a passive scan and which required
+   the client to hand over access.
+
+   WHY THIS EXISTS: the two tiers answer different questions, and a reader who
+   cannot tell them apart draws the wrong conclusion from both halves. A Tier 1
+   pass means "we looked from outside and this looked right". A Tier 2 pass means
+   "we logged in and confirmed it". Interleaving them in one severity-ranked list
+   silently presents the weaker statement as the stronger one.
+
+   Groups are returned in tier order with empty ones dropped, so a Tier 1 scan
+   renders exactly as it always did: one group, no headings the reader has to
+   work out are irrelevant.
+-------------------------------------------------------------------------------*/
+export const TIER_META = {
+  1: {
+    label: 'External checks',
+    blurb:
+      'Observed from outside, with no access to the site. These describe what any visitor could determine.',
+  },
+  2: {
+    label: 'Access-gated checks',
+    blurb:
+      'Run against the test account you provided. These verify behaviour that cannot be observed from outside.',
+  },
+}
+
+export function groupByTier(findings) {
+  if (!findings) return []
+
+  /* A finding with no tier field is treated as Tier 1. Every finding the current
+     engine emits carries one, but scans stored before the tier stamp existed do
+     not, and the alternative - a third "unknown tier" group - would put old
+     reports in a bucket that describes nothing. Tier 1 is also the safe default
+     to guess wrong in: it claims less. */
+  return [1, 2]
+    .map((tier) => ({
+      tier,
+      ...TIER_META[tier],
+      findings: sortBySeverity(findings.filter((f) => (f.tier || 1) === tier)),
+    }))
+    .filter((group) => group.findings.length > 0)
+}
+
+/* ----------------------------------------------------------------------------
+   UNVERIFIED — a Tier 2 check that never reached the thing it was testing.
+
+   THE DISTINCTION THIS DRAWS IS THE POINT OF THE FUNCTION. Both tiers emit
+   'skipped', and it means opposite things in each:
+
+     Tier 1 skipped  "there is no login page, so there was nothing to check"
+                     — no action available, nothing withheld from the reader.
+
+     Tier 2 skipped  "a CSRF token, a WAF or a rate limiter turned both probes
+                     away, so this control is UNVERIFIED" — the client paid for
+                     an answer and did not get one, and there is something they
+                     can do about it.
+
+   Rendering both as a grey "Skipped" pill files the second under the first. The
+   backend already refuses to call that case passed (see the guard in
+   account_enumeration_check.py); this is the same refusal carried into the UI,
+   which is where the client actually reads it.
+-------------------------------------------------------------------------------*/
+export function isUnverified(finding) {
+  return Boolean(finding) && finding.severity === 'skipped' && finding.tier === 2
 }

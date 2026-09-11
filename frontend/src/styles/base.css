@@ -464,6 +464,21 @@ input[type='radio'] {
 .badge.warning  { color: var(--warning);  background: var(--warning-bg);  border-color: var(--warning-border); }
 .badge.passed   { color: var(--passed);   background: var(--passed-bg);   border-color: var(--passed-border); }
 
+/* A Tier 2 check that never reached what it was testing. It borrows the warning
+   palette because it needs attention, and takes a DASHED border because it is
+   not a warning finding - nothing was found. The dash is the visual form of
+   "incomplete", and it is what stops this reading as a fourth severity.
+
+   Why it is not simply grey like .badge.skipped: see the note in
+   SeverityBadge.jsx. Both tiers emit the severity 'skipped' and it means
+   opposite things in each, and grey is the correct colour for only one of them. */
+.badge.unverified {
+  color: var(--warning-strong);
+  background: var(--warning-bg);
+  border-style: dashed;
+  border-color: var(--warning-border);
+}
+
 .icon.critical { color: var(--critical); }
 .icon.warning  { color: var(--warning); }
 .icon.passed   { color: var(--passed); }
