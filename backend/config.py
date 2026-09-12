@@ -241,9 +241,37 @@ EMAIL_FROM = _text("SECUSCAN_EMAIL_FROM")
 # a secret is missing is not a degraded mode, it is a giveaway.
 PAYMENT_PROVIDER = _text("SECUSCAN_PAYMENT_PROVIDER", "mock").lower()
 
-# Sandbox vs production, for the provider that has both. Defaults to the sandbox,
-# because the wrong default here spends real money rather than failing to.
-PADDLE_SANDBOX = _flag("SECUSCAN_PADDLE_SANDBOX", default=True)
+# SANDBOX VS PRODUCTION, and the one flag in this file that does not use _flag.
+#
+# _flag treats anything outside {1,true,yes,on} as false, which is the right rule
+# for a feature switch and a dangerous one here, because false means charge real
+# cards. `SECUSCAN_PADDLE_SANDBOX=flase` would read as production and look no
+# different from having meant it. The variable whose typo costs money is the one
+# that must not fail silently.
+#
+# So an unrecognised value does not resolve to false - it resolves to SANDBOX, and
+# startup_warnings names it. "I could not understand this" and "you asked for real
+# money" are different statements, and only one of them should be inferred from a
+# spelling mistake.
+#
+# It warns rather than refusing to boot: refusing would take the scanner and
+# sign-in down over a payments variable, and the resolved value is already the safe
+# one, so nothing is charged while the operator reads the line.
+_PADDLE_SANDBOX_RAW = _text("SECUSCAN_PADDLE_SANDBOX")
+_YES_WORDS = {"1", "true", "yes", "on"}
+_NO_WORDS = {"0", "false", "no", "off"}
+
+PADDLE_SANDBOX_VALUE_IS_CLEAR = (
+    not _PADDLE_SANDBOX_RAW or _PADDLE_SANDBOX_RAW.lower() in _YES_WORDS | _NO_WORDS
+)
+
+# Unset defaults to the sandbox, because the wrong default here spends real money
+# rather than failing to. Unreadable does the same, for the same reason.
+PADDLE_SANDBOX = (
+    _PADDLE_SANDBOX_RAW.lower() not in _NO_WORDS
+    if PADDLE_SANDBOX_VALUE_IS_CLEAR
+    else True
+)
 
 # The client-side token. NOT a secret, in the same way GOOGLE_CLIENT_ID is not: it
 # ships in the browser bundle so the overlay can open. It is here rather than
@@ -365,7 +393,18 @@ def startup_warnings() -> list[str]:
     # development and is the single most dangerous thing in this codebase to leave
     # switched on by accident, so it is printed at every single startup rather than
     # only when something is absent.
-    if PAYMENT_PROVIDER == "mock":
+    if PAYMENT_PROVIDER == "mock" and not PADDLE_SANDBOX:
+        # The contradiction payments/__init__.py refuses. Reported separately from
+        # the ordinary mock warning because the operator's mistake is a different
+        # one: they are mid-go-live and flipped the wrong variable, so telling them
+        # "the mock is on" would confirm what they were trying to turn off.
+        warnings.append(
+            "SECUSCAN_PAYMENT_PROVIDER=mock with SECUSCAN_PADDLE_SANDBOX=false - "
+            "these contradict each other, so CHECKOUT IS DISABLED (503) rather "
+            'than resolved either way. Set SECUSCAN_PAYMENT_PROVIDER=paddle to go '
+            "live, or put the sandbox flag back for development."
+        )
+    elif PAYMENT_PROVIDER == "mock":
         warnings.append(
             "SECUSCAN_PAYMENT_PROVIDER=mock - checkout validates the SHAPE of a "
             "card and grants the plan. NO MONEY MOVES and no card is authorised. "
@@ -389,6 +428,55 @@ def startup_warnings() -> list[str]:
             warnings.append(
                 "SECUSCAN_PAYMENT_PROVIDER=paddle in SANDBOX. Real cards are not "
                 "charged. Set SECUSCAN_PADDLE_SANDBOX=false for production."
+            )
+        else:
+            # WHY LIVE MODE PRINTS A LINE AT ALL, WHEN NOTHING IS WRONG
+            # This branch did not exist, so production said nothing about payments
+            # whatsoever - and silence is indistinguishable from "this code never
+            # ran". An operator who set SECUSCAN_PADDLE_SANDBOX and wants to know it
+            # took effect had no way to tell from the logs. The one configuration in
+            # this app that moves real money is the one that should announce itself.
+            warnings.append(
+                "SECUSCAN_PAYMENT_PROVIDER=paddle in PRODUCTION. REAL CARDS WILL BE "
+                "CHARGED and real payouts settle. Verify the price ids belong to "
+                "the live catalogue before sharing a checkout link."
+            )
+
+        # WHY A CREDENTIAL PREFIX IS WORTH CHECKING
+        # Sandbox and live Paddle are separate accounts that share no credentials,
+        # and a credential used against the wrong environment returns `forbidden`.
+        # That failure surfaces at the first checkout - which is to say, from a
+        # customer. The prefixes are stable enough to catch the common mistake
+        # (half the variables swapped) at startup instead.
+        #
+        # Matched on prefix only: no secret value is ever put in a log line.
+        looks_sandbox = PADDLE_API_KEY.startswith("pdl_sdbx_") or (
+            PADDLE_CLIENT_TOKEN.startswith("test_")
+        )
+        looks_live = PADDLE_API_KEY.startswith("pdl_live_") or (
+            PADDLE_CLIENT_TOKEN.startswith("live_")
+        )
+
+        if looks_sandbox and not PADDLE_SANDBOX:
+            warnings.append(
+                "PADDLE ENVIRONMENT MISMATCH: SECUSCAN_PADDLE_SANDBOX is false but "
+                "the API key or client token still looks like a sandbox credential. "
+                "Paddle answers `forbidden` for a cross-environment credential, so "
+                "every checkout will fail. Replace them with live values."
+            )
+        elif looks_live and PADDLE_SANDBOX:
+            warnings.append(
+                "PADDLE ENVIRONMENT MISMATCH: live-looking credentials with "
+                "SECUSCAN_PADDLE_SANDBOX still true. Set it to false, or put the "
+                "sandbox credentials back - the pair must match."
+            )
+
+        if not PADDLE_SANDBOX_VALUE_IS_CLEAR:
+            warnings.append(
+                f'SECUSCAN_PADDLE_SANDBOX="{_PADDLE_SANDBOX_RAW}" is not a value '
+                "this server recognises. It has been read as SANDBOX, so no real "
+                "card can be charged - but if production was intended, it is NOT "
+                'live. Spell it exactly "true" or "false".'
             )
     else:
         warnings.append(

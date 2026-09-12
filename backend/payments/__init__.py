@@ -74,6 +74,22 @@ __all__ = [
 # the same rule mailer.py has about printing recovery codes to a log.
 def _build_provider() -> PaymentProvider:
     if config.PAYMENT_PROVIDER == "mock":
+        # THE MOCK IS REFUSED WHEN THE SERVER CLAIMS TO BE LIVE.
+        #
+        # These two settings contradict each other. SECUSCAN_PADDLE_SANDBOX=false is
+        # a statement of intent to handle real money; provider=mock grants plans on
+        # a Luhn checksum. Whichever one was meant, the pair cannot both be, and the
+        # combination is exactly what a half-finished go-live looks like: the
+        # sandbox flag flipped, the provider never switched.
+        #
+        # The safe resolution of an incoherent payment configuration is NO PAYMENTS.
+        # Not the mock - that is the giveaway this package's whole design exists to
+        # prevent, and the direction of the mistake does not change the rule. The
+        # note below about never substituting the mock for a misconfigured Paddle is
+        # the same principle read from the other end.
+        if not config.PADDLE_SANDBOX:
+            return PaymentProvider()
+
         return MockCardProvider()
 
     if config.PAYMENT_PROVIDER == "paddle":

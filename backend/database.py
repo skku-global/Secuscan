@@ -88,6 +88,29 @@ ORDERS_COLLECTION = "orders"
 # credentials automatically expire and are purged even if manual cleanup is missed.
 CREDENTIALS_COLLECTION = "scan_credentials"
 
+# WHY WEBHOOK EVENTS GET A COLLECTION OF THEIR OWN
+# Paddle guarantees AT-LEAST-ONCE delivery: "your handler may occasionally receive
+# the same event more than once". It also retries anything that does not answer 200
+# within five seconds - for up to three days on a live account. So a slow reply is
+# not a lost event, it is a SECOND event carrying the same payment.
+#
+# Without a record of what has already been processed, each of those deliveries
+# writes another receipt and re-runs set_user_plan with a fresh thirty-day period.
+# One sale, N orders, and a subscription that extends itself every time the network
+# hiccups. This collection is the record: `_id` is Paddle's own `event_id`, so the
+# uniqueness is MongoDB's problem rather than ours, and a duplicate is a failed
+# insert instead of a second grant.
+#
+# It carries a TTL on expiresAt like the auth collections, set to outlive Paddle's
+# three-day retry window with room to spare. Unlike ORDERS above, this IS swept -
+# it is a de-duplication ledger, not a receipt. Once no retry can still arrive, the
+# claim has done its whole job and keeping it forever would grow without bound.
+WEBHOOK_EVENTS_COLLECTION = "webhook_events"
+
+# How long a processed-event claim is kept. Paddle's live retry schedule spans three
+# days; seven gives margin for a delivery that arrives at the very end of it.
+WEBHOOK_EVENT_TTL_DAYS = 7
+
 # PYTHON-SPECIFIC: a module-level variable holding the client, initialised to
 # None and filled in at startup. A module in Python is a singleton - it executes
 # once, no matter how many files import it - so this is the standard way to share
@@ -186,6 +209,28 @@ async def connect() -> None:
     # months later, so it is never swept.
     await _client[DATABASE_NAME][ORDERS_COLLECTION].create_index(
         [("userId", 1), ("createdAt", -1)]
+    )
+
+    # THE BACKSTOP UNDER WEBHOOK IDEMPOTENCY, and deliberately not the only defence.
+    # claim_webhook_event below stops a duplicate delivery before it writes; this
+    # stops a duplicate RECEIPT even if that logic is bypassed, refactored away, or
+    # reached by a path nobody anticipated. One provider transaction can produce at
+    # most one order document, enforced by the storage engine rather than by anyone
+    # remembering to check.
+    #
+    # Sparse for the same reason googleId above is: the mock provider writes orders
+    # with no providerRef, and a plain unique index treats every missing field as
+    # the same null - so the second mock purchase in the system would collide with
+    # the first. Sparse indexes "only reference documents that actually have this
+    # field", which is exactly the intent.
+    await _client[DATABASE_NAME][ORDERS_COLLECTION].create_index(
+        "providerRef", unique=True, sparse=True
+    )
+
+    # The webhook de-duplication ledger. TTL only - every lookup is by _id, which
+    # is indexed by definition, so there is nothing else to index here.
+    await _client[DATABASE_NAME][WEBHOOK_EVENTS_COLLECTION].create_index(
+        "expiresAt", expireAfterSeconds=0
     )
 
     # Tier 2 scan credentials TTL and lookup indexes.
@@ -1014,6 +1059,65 @@ async def create_order(order: dict) -> None:
         await _get_collection(ORDERS_COLLECTION).insert_one(document)
     except PyMongoError:
         raise StorageError("Could not write the order.") from None
+
+
+# WHY THIS EXISTS
+# Claims a provider webhook event, so the work behind it happens exactly once.
+#
+# THIS IS AN ATOMIC CONDITIONAL CLAIM, NOT A READ-THEN-WRITE, for the same reason
+# claim_totp_step below is one: "has this event been seen?" followed by "mark it
+# seen" leaves a window in which two concurrent deliveries both read no and both
+# proceed - which is precisely the duplicate this exists to stop. Paddle retries in
+# parallel with the original when the original is merely slow, so that window is not
+# theoretical. Here the insert IS the test: the unique _id means the second one
+# cannot land, and the driver tells us so.
+#
+# Returns True when the caller now owns the event and should do the work, False when
+# somebody already has.
+#
+# PYTHON-SPECIFIC: DuplicateKeyError is caught BEFORE the broad PyMongoError clause,
+# and the order is load-bearing. DuplicateKeyError is a subclass of PyMongoError, so
+# a single `except PyMongoError` would swallow it and make "already processed" look
+# identical to "the database is unreachable" - one of which must return 200 and the
+# other of which must return 5xx so the event is redelivered.
+async def claim_webhook_event(event_id: str, provider: str = "") -> bool:
+    now = datetime.now(timezone.utc)
+
+    document = {
+        "_id": event_id,
+        "provider": provider,
+        "claimedAt": now,
+        "expiresAt": now + timedelta(days=WEBHOOK_EVENT_TTL_DAYS),
+    }
+
+    try:
+        await _get_collection(WEBHOOK_EVENTS_COLLECTION).insert_one(document)
+    except DuplicateKeyError:
+        return False
+    except PyMongoError:
+        raise StorageError("Could not claim the webhook event.") from None
+
+    return True
+
+
+# WHY THIS EXISTS
+# Hands a claimed event back, so a delivery that failed halfway can be retried.
+#
+# The claim is taken before any write, which means a claim held by a delivery that
+# then failed to write its order would permanently suppress every retry of the only
+# event that could fix it - a charged customer with no receipt and no code path left
+# that would ever produce one. Releasing turns that into "Paddle tries again", which
+# is what at-least-once delivery is for.
+#
+# It does NOT raise. It is called from an error path that is already returning 5xx,
+# and a second exception there would replace a useful failure with a confusing one.
+# The worst case if the delete fails is a suppressed retry, which is the state we
+# were in anyway - and the TTL eventually clears it regardless.
+async def release_webhook_event(event_id: str) -> None:
+    try:
+        await _get_collection(WEBHOOK_EVENTS_COLLECTION).delete_one({"_id": event_id})
+    except PyMongoError:
+        pass
 
 
 # WHY THIS EXISTS

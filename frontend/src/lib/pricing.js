@@ -115,9 +115,21 @@ export const PRICING_PLANS = [
                would try to route "mailto:..." as a path.
    ========================================================================== */
 
-/* The one address, reused rather than retyped. Checkout.jsx's Enterprise branch
-   already used it; a second copy is a second thing to forget when it changes. */
-export const SALES_EMAIL = 'sales@secuscan.app'
+/* The one address, reused rather than retyped. A second copy is a second thing to
+   forget when it changes — and this file had already been proven right about that:
+   Checkout.jsx's Enterprise branch hardcoded the old address instead of importing
+   this, so a change here would have left that one button on a dead mailbox.
+
+   RENAMED FROM SALES_EMAIL, because the address is no longer only for sales. The
+   same mailbox now receives enterprise enquiries, the Settings contact form, and
+   the "something went wrong" routes on the checkout screens, so a name describing
+   one of those three would be wrong on the other two.
+
+   The backend has its own copy in config.SUPPORT_EMAIL. That is not a duplicate of
+   this: this is the address a BROWSER opens a mail client to, and that is the
+   recipient the SERVER mails from the contact endpoint. Neither can read the
+   other's, and the backend's is settable per deployment. */
+export const CONTACT_EMAIL = 'admin@skkuglobal.com'
 
 /* The id on Landing's pricing section, exported so the pages that link INTO it
    cannot drift from the page that defines it. Settings' "Upgrade" link is the
@@ -141,7 +153,7 @@ export function planDestination(plan) {
       kind: 'mailto',
       /* encodeURIComponent, so a subject with a space or an ampersand in it does
          not truncate the mailto at the first special character. [General] */
-      href: `mailto:${SALES_EMAIL}?subject=${encodeURIComponent('Enterprise plan')}`,
+      href: `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Enterprise plan')}`,
     }
   }
 

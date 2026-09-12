@@ -3004,6 +3004,19 @@ async def checkout(
 # An event this server does not recognise is not an error worth retrying, and an
 # unprocessable payload that would fail every time must not become an infinite retry
 # loop. 200 means "received", not "acted upon".
+#
+# AND WHY IT NOW RETURNS 503 SOMETIMES. That rule was applied to one case it does not
+# cover: a storage failure. "Retrying will not fix it" is true of a payload that is
+# malformed in every delivery and false of a database that was briefly unreachable -
+# and for a grant_plan event, 200 on a failed write means a customer has been charged
+# and will never be granted anything, because nothing will ever deliver that event
+# again. So the split is by CAUSE, not by convenience: permanent problems get 200,
+# transient ones get 503 and a released claim.
+#
+# THE RETRIES ARE THE REASON FOR THE CLAIM. Paddle guarantees at-least-once delivery
+# and gives a handler five seconds to answer, so a slow reply does not lose an event -
+# it duplicates one. Every delivery is de-duplicated on Paddle's event_id before any
+# write happens.
 # ============================================================================
 @app.post("/billing/webhook")
 async def billing_webhook(request: Request) -> dict:
@@ -3031,6 +3044,71 @@ async def billing_webhook(request: Request) -> dict:
     user_id = result.get("user_id")
     event_id = result.get("event_id", "")
 
+    # ------------------------------------------------------------------
+    # IDEMPOTENCY: claim the event before anything is written.
+    #
+    # Paddle guarantees at-least-once delivery and retries anything that has not
+    # answered 200 within five seconds. Both of those produce a second delivery of
+    # one payment, and without this claim each delivery writes another receipt and
+    # grants another thirty days. The claim is an atomic insert keyed on Paddle's
+    # own event_id, so the second delivery loses the race rather than repeating the
+    # work - see database.claim_webhook_event.
+    #
+    # An event with no id cannot be de-duplicated, so it is not claimed. That is
+    # the mock provider's case rather than Paddle's; the unique index on
+    # orders.providerRef is what keeps even that from writing two receipts.
+    # ------------------------------------------------------------------
+    claimed = False
+
+    if event_id:
+        try:
+            claimed = await database.claim_webhook_event(
+                event_id, provider=payments.provider_name()
+            )
+        except database.StorageError:
+            # We cannot tell whether this event was already processed, so we must
+            # not guess. 503 asks Paddle to redeliver, and the claim attempt is
+            # idempotent - trying again is safe.
+            print(f"[webhook] could not claim event {event_id} - asking for retry")
+            raise HTTPException(
+                status_code=503,
+                detail="Could not record the event. Please redeliver.",
+            )
+
+        if not claimed:
+            # Already processed. 200, because this is a success: the work behind
+            # this event is done, which is exactly what Paddle wants to hear.
+            print(f"[webhook] event {event_id} already processed - duplicate")
+            return {"ok": True, "action": "duplicate"}
+    else:
+        print(f"[webhook] {action} event carries no event_id - not de-duplicated")
+
+    # PYTHON-SPECIFIC: bare `except Exception` then `raise` re-raises the original
+    # with its traceback intact. The breadth is deliberate - set_user_plan does not
+    # wrap pymongo's errors the way create_order does, so the failures that must
+    # release this claim are not all one type, and a claim held by a delivery that
+    # died is a claim that silently suppresses every retry that could fix it.
+    try:
+        return await _apply_webhook_action(result, action, user_id, event_id)
+    except Exception:
+        if claimed:
+            await database.release_webhook_event(event_id)
+        raise
+
+
+# WHY THE DISPATCH LIVES IN ITS OWN FUNCTION
+# The route above owns exactly one concern: has this event already been handled, and
+# if handling fails, hand the claim back so it can be handled later. Everything below
+# owns what an event MEANS. Keeping them apart is what lets the claim be released on
+# every failure path with one try/except, rather than a release call before each of
+# the dozen returns in here - and a release somebody forgets to add to a new branch
+# is a payment that can never be retried.
+#
+# It takes what the route already parsed rather than the request, so it does no I/O
+# it does not need and is callable directly from a test.
+async def _apply_webhook_action(
+    result: dict, action: str | None, user_id: str, event_id: str
+) -> dict:
     # Every action below needs a user. If custom_data did not carry a user_id,
     # there is nothing to act on - log it and move on.
     if not user_id:
@@ -3088,8 +3166,20 @@ async def billing_webhook(request: Request) -> dict:
             await database.create_order(order)
         except database.StorageError:
             print(f"[webhook] grant_plan: could not write order for user {user_id}")
-            # Still 200 to Paddle - retrying will not fix a storage problem.
-            return {"ok": False, "action": "grant_plan", "reason": "storage_error"}
+            # THIS USED TO RETURN 200 WITH {"ok": False}, and the comment that
+            # argued for it said "retrying will not fix a storage problem". That
+            # reasoning is right for an unparseable payload and wrong here. A
+            # transient Mongo blip is the one failure a retry DOES fix, and 200
+            # tells Paddle never to send this event again - leaving a customer who
+            # has been charged with no order, no plan, and no code path left in the
+            # repo that would ever produce either.
+            #
+            # 503 asks Paddle to redeliver. The claim is released by the caller on
+            # the way out, so the redelivery is not rejected as a duplicate.
+            raise HTTPException(
+                status_code=503,
+                detail="Could not record the order. Please redeliver this event.",
+            )
 
         subscription = {
             "planId": plan["id"],

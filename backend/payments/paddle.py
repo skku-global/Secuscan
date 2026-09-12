@@ -48,7 +48,7 @@ import hashlib
 import hmac
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 
@@ -73,6 +73,19 @@ _API_BASE = {
 # Timeout for outbound calls to the Paddle API. Long enough for a slow sandbox, short
 # enough that a hung connection does not block a checkout for a minute.
 _TIMEOUT_SECONDS = 15.0
+
+# HOW OLD A SIGNED WEBHOOK BODY MAY BE BEFORE IT IS REFUSED.
+#
+# WHY THIS IS MINUTES AND NOT SECONDS. The clock difference between Paddle and this
+# server is not the binding constraint - a cold start is. The API is deployed on a
+# host that suspends an idle service, and waking one takes up to about a minute
+# before any request is served, so a delivery can legitimately be a minute old
+# before this function ever runs. Paddle then retries, and those retries arrive
+# minutes apart carrying the ORIGINAL ts. A tight window would reject exactly the
+# retries that exist to recover the first sale after a quiet period.
+#
+# Five minutes is the shape of Paddle's own guidance and leaves room for both.
+_SIGNATURE_MAX_AGE_SECONDS = 300.0
 
 
 # WHY THIS EXISTS
@@ -124,7 +137,36 @@ def missing_credentials() -> list[str]:
 #
 # Compared with hmac.compare_digest, never `==`, for the same constant-time
 # reason auth.py's token comparison uses it.
+#
+# THE TIMESTAMP IS PART OF THE CHECK, NOT DECORATION. It is inside the signed
+# payload, so an attacker cannot change it without invalidating the digest - but
+# a signature that is valid forever is a replay credential. Anyone who captures one
+# signed `transaction.completed` body (a proxy log, a mirrored request, a webhook
+# debugging tool left on) can re-POST it whenever they like, and each replay is
+# another thirty days. Rejecting an old `ts` is what makes the capture perishable.
+#
+# It is defence in depth alongside the event_id claim in main.py, and neither
+# replaces the other: the claim stops the same event twice, this stops a body held
+# for a week. The claim also expires after seven days, at which point the claim
+# alone would let a replay through.
 # ============================================================================
+
+def _timestamp_is_fresh(ts: str, *, now: datetime | None = None) -> bool:
+    """True when a Paddle-Signature `ts` is within the accepted age window.
+
+    An unparseable timestamp is NOT fresh. Paddle sends Unix seconds; anything else
+    is either a mangled header or a probe, and the safe reading of "I cannot tell
+    how old this is" is to refuse it.
+    """
+    moment = now or datetime.now(timezone.utc)
+
+    try:
+        signed_at = datetime.fromtimestamp(float(ts), tz=timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return False
+
+    return abs((moment - signed_at).total_seconds()) <= _SIGNATURE_MAX_AGE_SECONDS
+
 
 def _verify_paddle_signature(
     *, signature_header: str, body: bytes, secret: str
@@ -154,6 +196,18 @@ def _verify_paddle_signature(
 
     if not ts or not signatures:
         _log.warning("Paddle-Signature header is missing ts or h1 component")
+        return False
+
+    # FRESHNESS, CHECKED BEFORE THE HMAC. A stale body is refused whether or not its
+    # digest is good, so there is no reason to compute one - and doing the cheap
+    # rejection first means a flood of replayed bodies costs no SHA-256 work.
+    #
+    # Note the abs(): a ts far in the FUTURE is refused too. That is not pedantry
+    # about clock drift - it is the only thing stopping a signature minted against a
+    # forward-dated timestamp from being replayable for as long as that date is
+    # ahead of us.
+    if not _timestamp_is_fresh(ts):
+        _log.warning("Paddle-Signature timestamp is outside the accepted window")
         return False
 
     # Build the signed payload: timestamp + ":" + raw body.

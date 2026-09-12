@@ -712,12 +712,30 @@ export async function resetPassword({ challenge, code, newPassword }) {
    constants that agree today are two constants that disagree after one edit, and
    the failure mode is a customer shown $49 and billed $149.
 
-/* The shape of billing configuration when the request fails or is in-flight. */
+/* The shape of billing configuration when the request fails.
+
+   THIS USED TO SAY provider: 'mock', AND THAT WAS A REAL HOLE. Checkout.jsx renders
+   the mock card form for any provider that is not 'paddle', so one failed
+   /billing/config — a cold start, a dropped connection, a 502 from the proxy —
+   rendered a card form on the live site and put a real card number and CVC through
+   our own backend. A transient network error is the last thing that should widen
+   PCI scope.
+
+   'unavailable' is a provider name no backend ever returns, which is the point: it
+   cannot be mistaken for a working one, and Checkout branches on it explicitly. A
+   failed config read means "we cannot take payment right now", never "use the fake
+   processor". */
 export const BILLING_CONFIG_FALLBACK = {
-  provider: 'mock',
+  provider: 'unavailable',
   clientToken: '',
-  environment: 'sandbox',
+  environment: '',
 }
+
+/* The providers this frontend knows how to render a payment form for. Anything
+   else — 'unavailable' above, 'none' from a backend whose provider failed to
+   configure, or a provider added to the server before the UI catches up — gets the
+   "cannot take payment" screen rather than the wrong form. */
+export const PAYABLE_PROVIDERS = ['paddle', 'mock']
 
 /* Returns { provider, clientToken, environment }. Unauthenticated, read before
    rendering checkout so the UI can branch on whether to render mock or Paddle. */

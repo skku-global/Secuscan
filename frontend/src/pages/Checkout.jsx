@@ -88,7 +88,7 @@ import {
   formatExpiry,
   intervalSuffix,
 } from '../lib/cardFormat'
-import { PRICING_PLANS, PRICING_ANCHOR } from '../lib/pricing'
+import { PRICING_PLANS, PRICING_ANCHOR, CONTACT_EMAIL } from '../lib/pricing'
 import { initPaddle, openPaddleCheckout } from '../lib/paddle'
 import '../styles/checkout.css'
 
@@ -142,6 +142,7 @@ export default function Checkout() {
   const [error, setError] = useState('')
   const [paying, setPaying] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const [settleTimedOut, setSettleTimedOut] = useState(false)
 
   /* The completed purchase: { order, plan, subscription, user }. Non-null means the
      page stops being a form and becomes a receipt. [React] One piece of state rather
@@ -150,6 +151,19 @@ export default function Checkout() {
   const [receipt, setReceipt] = useState(null)
 
   const isPaddle = billingConfig?.provider === 'paddle'
+
+  /* WHY THIS IS A LIST MEMBERSHIP TEST AND NOT `!isPaddle`.
+     The form below renders the mock card fields for anything that is not Paddle,
+     which silently treats every unknown provider as "collect a card ourselves" —
+     including the 'unavailable' that api.js returns when /billing/config fails, and
+     the 'none' a backend reports when its provider would not configure. Both of
+     those mean the opposite. Naming the providers we can actually render makes the
+     default safe instead of the most dangerous available option.
+
+     null while the config is still loading, so the loading branch keeps the screen
+     rather than this one flashing first. */
+  const paymentsUnavailable =
+    billingConfig !== null && !api.PAYABLE_PROVIDERS.includes(billingConfig?.provider)
 
   /* ------------------------------------------------------------------------
      LOADING THE CATALOGUE AND BILLING CONFIG
@@ -197,12 +211,22 @@ export default function Checkout() {
      POLL FOR WEBHOOK SETTLEMENT WHEN PROCESSING
      ---------------------------------------------------------------------- */
 
+  /* WHY THE BUDGET IS THREE MINUTES AND NOT THIRTY SECONDS.
+     What this waits for is not a slow response — it is a whole round trip through
+     Paddle: they settle the transaction, POST our webhook, and our server writes the
+     plan. On a host that suspends an idle service, that POST can spend most of a
+     minute just waking the API up before it is even read, and Paddle then retries on
+     its own schedule. Thirty seconds reliably expired while everything was working
+     correctly.
+
+     It is still a budget and not a forever-loop. Waiting cannot be unbounded, so the
+     question is only what the screen says when the wait ends — see below. */
   useEffect(() => {
     if (!processing) return
 
     let cancelled = false
     let attempts = 0
-    const maxAttempts = 15 // 30 seconds of polling (2s intervals)
+    const maxAttempts = 90 // three minutes of polling (2s intervals)
 
     const interval = setInterval(async () => {
       attempts += 1
@@ -220,6 +244,18 @@ export default function Checkout() {
           })
         } else if (attempts >= maxAttempts) {
           clearInterval(interval)
+
+          /* THE POLL GIVING UP USED TO CHANGE NOTHING ON SCREEN, which left
+             "This usually takes just a few moments" and a spinning loader in front
+             of a customer whose card had already been charged — indefinitely, and
+             wrongly, since by then it was no longer a few moments and we were no
+             longer watching. A spinner that has stopped meaning anything is worse
+             than no spinner: it is the screen telling someone their money is in
+             flight when nobody is looking at it any more.
+
+             The payment is not in doubt here — only our confirmation of it is, so
+             the honest terminal state says exactly that and hands over an address. */
+          setSettleTimedOut(true)
         }
       } catch {
         // Transient network error, keep polling
@@ -497,14 +533,66 @@ export default function Checkout() {
               Tell us what you need and we will put a number to it.
             </p>
 
-            {/* [General] A mailto: link rather than a contact form, because a
-                contact form that posts nowhere is worse than an address that
-                works. This is the smallest thing that is actually true. */}
-            <a className="btn-primary" href="mailto:sales@secuscan.app?subject=Enterprise%20plan">
+            {/* A mailto: link rather than a contact form, and the original reason
+                was "a contact form that posts nowhere is worse than an address
+                that works". There IS somewhere to post now — POST /contact, with
+                the form in Settings — but that endpoint is authenticated, and the
+                person reading this may well not have an account yet. An enterprise
+                enquiry from a stranger is exactly the message a mailto still
+                serves better.
+
+                The address comes from the constant. It was hardcoded here, which
+                is the precise mistake pricing.js's own comment predicted.
+
+                encodeURIComponent for the subject, so a space or ampersand cannot
+                truncate the mailto at the first special character. [General] */}
+            <a
+              className="btn-primary"
+              href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Enterprise plan')}`}
+            >
               Email us about Enterprise
             </a>
           </>
         )}
+
+        {backToPricing}
+      </section>,
+    )
+  }
+
+  /* ------------------------------------------------------------------------
+     BRANCH 4.25 — THIS SERVER CANNOT TAKE A PAYMENT RIGHT NOW
+
+     Below BRANCH 4 deliberately: a plan with no price does not need a payment
+     provider, so Enterprise should reach its mailto even when billing is down.
+     Above the form for the reason that matters — the form's provider check is an
+     `isPaddle ?` ternary, so without this branch an unreadable /billing/config
+     renders the card fields and asks a real person for a real card number.
+     ---------------------------------------------------------------------- */
+
+  if (paymentsUnavailable) {
+    return shell(
+      <section className="card co-card">
+        <h1 className="page-title">Checkout unavailable</h1>
+
+        <p className="auth-error" role="alert">
+          <AlertCircle className="icon" size={16} strokeWidth={2} aria-hidden="true" />
+          <span>Payments are not available on this server right now.</span>
+        </p>
+
+        <p className="co-text">
+          Nothing has been charged and your card details were never requested. This
+          is a problem at our end, not with your account or your card — your current
+          plan is untouched. Trying again in a few minutes is usually enough.
+        </p>
+
+        <p className="co-text">
+          If it keeps happening, email{' '}
+          <a href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Checkout unavailable')}`}>
+            {CONTACT_EMAIL}
+          </a>{' '}
+          and we will sort it out.
+        </p>
 
         {backToPricing}
       </section>,
