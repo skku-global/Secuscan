@@ -46,6 +46,12 @@ class MockCursor:
         self.docs = list(docs)
         self.idx = 0
 
+    def sort(self, *args, **kwargs):
+        return self
+
+    def limit(self, *args, **kwargs):
+        return self
+
     def __aiter__(self):
         return self
 
@@ -57,6 +63,7 @@ class MockCursor:
         return doc
 
 
+
 class MockDatabase:
     def __init__(self):
         self.users = {}
@@ -65,7 +72,7 @@ class MockDatabase:
         self.credentials = []
         self.orders = []
 
-    def get_collection(self, name):
+    def get_collection(self, name=database.COLLECTION_NAME):
         db = self
         class Coll:
             async def find_one(self, query):

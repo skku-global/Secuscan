@@ -50,6 +50,7 @@ SUITES = [
     "test_finding.py",
     "test_engine.py",
     "test_plan_limits.py",
+    "test_account_deletion_export.py",
 ]
 
 
