@@ -27,6 +27,7 @@ HERE = Path(__file__).resolve().parent
 # whose name stops matching, and a test that silently stops running is worse than one
 # that fails. Adding a suite is a one-line edit here, on purpose.
 SUITES = [
+    "test_discovery.py",
     "test_branches.py",
     "test_https_branches.py",
     "test_rate_limit.py",
@@ -37,6 +38,13 @@ SUITES = [
     "test_credentials.py",
     "test_tier2_retention.py",
     "test_account_enumeration.py",
+    "test_tier2_session.py",
+    "test_endpoints.py",
+    "test_session_cookie.py",
+    "test_logout.py",
+    "test_password_reset.py",
+    "test_two_factor.py",
+    "test_contact.py",
     "test_engine_e2e.py",
 ]
 

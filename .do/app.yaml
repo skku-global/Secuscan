@@ -49,9 +49,50 @@ services:
       - key: SECUSCAN_EMAIL_FROM
         value: "SecuScan <security@yourdomain.com>"
 
-      # --- Payments (Paddle / Mock) ---------------------------------------------
+      # WHERE THE CONTACT FORM'S MESSAGES LAND, and NOT a second copy of the line
+      # above. EMAIL_FROM is the address this server sends AS, and has to be on a
+      # domain verified with Resend. This is the ordinary mailbox a person reads
+      # when a signed-in user asks for help through Settings, so it can be any
+      # address that actually receives mail.
+      #
+      # It has a working default in config.py, so leaving this out does not break a
+      # deployment - it is here because a deployment whose support mailbox differs
+      # from the default has no other way to say so, and searching the source for
+      # the address is not that way.
+      #
+      # The frontend has its own copy in lib/pricing.js for the mailto: links a
+      # browser opens directly. That one is baked into the static bundle at build
+      # time and cannot read this, so the two are changed together on purpose.
+      - key: SECUSCAN_SUPPORT_EMAIL
+        value: "support@yourdomain.com"
+
+      # --- Payments (Paddle) ----------------------------------------------------
+      #
+      # THIS SHIPPED AS "mock" AND THAT WAS A LIVE HAZARD. Every value in this
+      # block is a placeholder, so the spec as written deployed a public server
+      # whose checkout grants paid plans to anyone who types a card number that
+      # passes a Luhn checksum. No money moves and no card is authorised - the
+      # customer simply gets the plan for free. A deployment spec must not be able
+      # to do that by being applied unedited.
+      #
+      # It is "paddle" now, with placeholder credentials, so an unedited apply
+      # gives the SAFE failure instead: PaddleProvider refuses to construct, the
+      # server boots, scanning and sign-in work, and only POST /billing/checkout
+      # answers 503. payments/__init__.py deliberately does not substitute the
+      # mock for a Paddle that would not configure.
+      #
+      # REPLACE EVERY PLACEHOLDER BELOW BEFORE APPLYING. They are not defaults;
+      # they are the shape of the value you need to paste in. The mock provider is
+      # for local development only - set SECUSCAN_PAYMENT_PROVIDER=mock in a .env
+      # on your own machine, never in a deployed spec.
       - key: SECUSCAN_PAYMENT_PROVIDER
-        value: "mock"
+        value: "paddle"
+
+      # "true" charges nothing and uses Paddle's sandbox. Set it to exactly
+      # "false" to charge real cards, and switch every credential below to a live
+      # one at the same time - sandbox and live Paddle are separate accounts that
+      # share no credentials, and a sandbox key used against the live API returns
+      # `forbidden`. config.py warns at startup when the two disagree.
       - key: SECUSCAN_PADDLE_SANDBOX
         value: "true"
       - key: SECUSCAN_PADDLE_CLIENT_TOKEN

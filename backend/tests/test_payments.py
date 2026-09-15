@@ -15,10 +15,14 @@ Run from anywhere (the `import _path` line puts backend/ on sys.path):
 """
 
 import asyncio
+from contextlib import contextmanager
+import hashlib as _hashlib
+import hmac as _hmac
 import json as _json
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from fastapi import HTTPException
 
 import _path  # noqa: F401  - puts backend/ on sys.path; must precede the imports below
 import billing
@@ -338,8 +342,36 @@ print("\n--- 5. Selection never falls back to the mock -------------------------
 
 _saved_name = config.PAYMENT_PROVIDER
 
+# PADDLE_SANDBOX IS PINNED HERE TOO, and the reason is the bug this line was written
+# to fix. Selecting the mock depends on TWO settings now, not one: the mock is
+# refused when the server also claims to be live, because provider=mock with
+# sandbox=false is a contradiction and the safe reading of a contradictory payment
+# config is no payments. This section sets the provider and used to inherit the
+# sandbox flag from whatever .env happened to say - so it went red the moment a
+# developer set SECUSCAN_PADDLE_SANDBOX=false on the way to going live, which is
+# exactly the "fails BECAUSE the configuration is right" trap the note at the end of
+# this section already warns about.
+_saved_sandbox = config.PADDLE_SANDBOX
+
 config.PAYMENT_PROVIDER = "mock"
+config.PADDLE_SANDBOX = True
 check("mock is selected by name", payments._build_provider().name, "mock")
+
+# THE MOCK IS REFUSED WHEN THE SERVER SAYS IT IS LIVE.
+# Same doctrine as the unconfigured-paddle case below, read from the other end.
+# Setting sandbox=false states intent to handle real money; the mock grants plans on
+# a Luhn checksum. This is what a half-finished go-live looks like - the sandbox flag
+# flipped, the provider never switched - and resolving it toward the mock would hand
+# out free subscriptions on a production domain.
+config.PADDLE_SANDBOX = False
+_mock_live = payments._build_provider()
+check("the mock is refused when sandbox is false", _mock_live.name, "none")
+check("and it is NOT the mock", _mock_live.name == "mock", False)
+check("so a card sent to it is refused",
+      run(_mock_live.create_checkout(
+          plan=STARTER, user={"id": "u1"}, card=card(), now=NOW)).status,
+      "refused")
+config.PADDLE_SANDBOX = True
 
 # THE ONE THAT MATTERS. Paddle selected and unconfigured must produce the switched-
 # off provider - not the mock. "The processor is broken, so grant plans using a
@@ -364,6 +396,7 @@ check("an unknown provider is switched off", unknown.name, "none")
 check("and is NOT the mock", unknown.name == "mock", False)
 
 config.PAYMENT_PROVIDER = _saved_name
+config.PADDLE_SANDBOX = _saved_sandbox
 (
     config.PADDLE_CLIENT_TOKEN,
     config.PADDLE_API_KEY,
@@ -385,7 +418,7 @@ config.PAYMENT_PROVIDER = _saved_name
 # no unrecognised provider string can arrive at it.
 _restored = payments.provider_name()
 check("the mock is reached only by asking for it by name",
-      _restored == "mock", _saved_name == "mock")
+      _restored == "mock", _saved_name == "mock" and _saved_sandbox)
 check("and the restored provider is a real one",
       _restored in ("mock", "paddle", "none"), True)
 check("so payments are available", payments.payments_available(), True)
@@ -498,6 +531,271 @@ check("business is unchanged", billing.find_plan("business")["amountCents"], 149
 check("period is 30 days", billing.period_end(STARTER, NOW), NOW + timedelta(days=30))
 check("free has no period", billing.period_end(FREE, NOW), None)
 check("formatting is unchanged", billing.format_amount(4900), "$49.00")
+
+
+
+
+# ============================================================================
+print("\n--- 9. A signature that PASSES, and the window it expires in ----------")
+# ============================================================================
+# NOTHING PREVIOUSLY TESTED A SIGNATURE THAT PASSES. Section 4 checks that a missing
+# header returns None, which proves a guard exists and proves nothing about the
+# arithmetic behind it - a verifier that rejected everything would have satisfied
+# every assertion in this file. So this section signs bodies the way Paddle does and
+# pins both answers.
+
+_SECRET = "test_secret"
+
+config.PADDLE_CLIENT_TOKEN = "test_token"
+config.PADDLE_API_KEY = "test_key"
+config.PADDLE_WEBHOOK_SECRET = _SECRET
+config.paddle_price_id = lambda plan_id: "pri_test"
+
+
+def _sign(body, ts=None, secret=_SECRET, extra_h1=()):
+    """Build a Paddle-Signature header the way Paddle does: a ts, then an h1 over
+    `ts:body`. `extra_h1` prepends decoy digests, which is what a key rotation
+    looks like on the wire."""
+    stamp = str(int((ts or datetime.now(timezone.utc)).timestamp()))
+    digest = _hmac.new(
+        secret.encode("utf-8"),
+        stamp.encode("utf-8") + b":" + body,
+        _hashlib.sha256,
+    ).hexdigest()
+    return ";".join([f"ts={stamp}"] + [f"h1={h}" for h in extra_h1] + [f"h1={digest}"])
+
+
+_EVENT = {
+    "event_id": "evt_01",
+    "event_type": "transaction.completed",
+    "data": {
+        "id": "txn_555",
+        "subscription_id": "sub_1",
+        "custom_data": {"user_id": "u1", "plan_id": "starter"},
+    },
+}
+_BODY = _json.dumps(_EVENT).encode("utf-8")
+
+_wh = paddle.PaddleProvider()
+
+
+def _hook(header, body=_BODY):
+    return run(_wh.handle_webhook(headers={"paddle-signature": header}, body=body))
+
+
+_good = _hook(_sign(_BODY))
+check("a valid signature is accepted", _good is not None, True)
+check("  and the event is dispatched", _good["action"], "grant_plan")
+check("  carrying the event id de-duplication needs", _good["event_id"], "evt_01")
+check("  and the user from custom_data", _good["user_id"], "u1")
+check("  and the transaction id the order stores", _good["transaction_id"], "txn_555")
+
+# THE BYTES ARE WHAT IS SIGNED, which is why the endpoint takes a raw Request and
+# not a parsed model. One altered byte is the whole assertion.
+check("a tampered body is refused", _hook(_sign(_BODY), _BODY.replace(b"u1", b"u2")), None)
+check("the wrong secret is refused", _hook(_sign(_BODY, secret="not_it")), None)
+check("a header with no h1 is refused", _hook("ts=1700000000"), None)
+
+# KEY ROTATION. Paddle sends several h1 components while two keys are live and only
+# one is ours. Matching ANY is the requirement; matching only the first would break
+# every delivery for the length of a rotation.
+check("a rotation with decoy digests still verifies",
+      _hook(_sign(_BODY, extra_h1=("0" * 64, "f" * 64))) is not None, True)
+
+# FRESHNESS. A signature that never expires is a replay credential: one captured
+# transaction.completed body, re-POSTed, is another thirty days - every time.
+check("a two-hour-old signature is refused",
+      _hook(_sign(_BODY, ts=datetime.now(timezone.utc) - timedelta(hours=2))), None)
+
+# The same hole with the sign flipped. A signature minted against a forward-dated ts
+# would otherwise stay replayable until that date arrived.
+check("a future-dated signature is refused",
+      _hook(_sign(_BODY, ts=datetime.now(timezone.utc) + timedelta(hours=2))), None)
+
+# Just inside the window still works, so the window is a window and not a wall.
+check("a one-minute-old signature is accepted",
+      _hook(_sign(_BODY, ts=datetime.now(timezone.utc) - timedelta(seconds=60))) is not None,
+      True)
+
+check("an unparseable ts is refused", _hook("ts=nonsense;h1=" + "a" * 64), None)
+check("_timestamp_is_fresh refuses an empty ts", paddle._timestamp_is_fresh(""), False)
+check("  and the window is five minutes", paddle._SIGNATURE_MAX_AGE_SECONDS, 300.0)
+check("valid JSON is still required after a good signature",
+      _hook(_sign(b"not json"), b"not json"), None)
+
+
+# ============================================================================
+print("\n--- 10. Production selects the live API base --------------------------")
+# ============================================================================
+# A one-line mapping, and the line that decides whether a charge is real money. It
+# earns a test because its failure is silent in the direction that matters: a live
+# deployment still pointed at sandbox-api.paddle.com takes no money and looks fine
+# doing it.
+
+_saved_sb = config.PADDLE_SANDBOX
+
+config.PADDLE_SANDBOX = True
+check("sandbox targets the sandbox API",
+      paddle.PaddleProvider()._api_base, "https://sandbox-api.paddle.com")
+check("  and reports sandbox to the browser",
+      paddle.PaddleProvider()._environment, "sandbox")
+
+config.PADDLE_SANDBOX = False
+check("production targets the live API",
+      paddle.PaddleProvider()._api_base, "https://api.paddle.com")
+check("  and reports production to the browser",
+      paddle.PaddleProvider()._environment, "production")
+
+config.PADDLE_SANDBOX = _saved_sb
+
+
+# ============================================================================
+print("\n--- 11. One payment writes one order, however often it is delivered ---")
+# ============================================================================
+# THE DEFECT THIS SECTION EXISTS FOR. Paddle guarantees at-least-once delivery and
+# retries anything that has not answered 200 within five seconds, so a slow reply
+# does not lose an event - it duplicates one. Before the claim, each delivery of one
+# transaction.completed wrote another receipt and re-ran set_user_plan with a fresh
+# thirty-day period: one sale, N orders, and a subscription extending itself every
+# time the network hiccuped.
+#
+# THIS DRIVES THE REAL ENDPOINT. Re-implementing the claim over a dict would test a
+# copy of the logic and pass happily while main.py did something else - so main is
+# imported and its collaborators are swapped, which is the pattern test_reset.py
+# already uses. The import is here rather than at the top because it is heavy and
+# only this section needs it.
+import main  # noqa: E402
+
+_RealStorageError = main.database.StorageError
+
+
+class _FakeDatabase:
+    """Only the five calls the webhook path makes. `fail_on` names a method that
+    should raise StorageError, which is how the transient-blip cases are driven."""
+
+    StorageError = _RealStorageError
+
+    def __init__(self, fail_on=""):
+        self.claims = set()
+        self.orders = []
+        self.plans = []
+        self.released = []
+        self.fail_on = fail_on
+
+    async def claim_webhook_event(self, event_id, provider=""):
+        if self.fail_on == "claim":
+            raise _RealStorageError("claim is down")
+        # THE INSERT IS THE TEST, exactly as the unique _id makes it in Mongo -
+        # not a read followed by a write, which leaves a window two concurrent
+        # deliveries both pass through.
+        if event_id in self.claims:
+            return False
+        self.claims.add(event_id)
+        return True
+
+    async def release_webhook_event(self, event_id):
+        self.released.append(event_id)
+        self.claims.discard(event_id)
+
+    async def create_order(self, order):
+        if self.fail_on == "create_order":
+            raise _RealStorageError("mongo blipped")
+        self.orders.append(order)
+
+    async def set_user_plan(self, user_id, plan_id, subscription):
+        self.plans.append((user_id, plan_id, subscription))
+
+    async def find_user_by_id(self, user_id):
+        return {"id": user_id, "email": "ada@example.com"}
+
+
+class _FakePayments:
+    """main.py reaches through the module for both of these."""
+
+    @staticmethod
+    def get_provider():
+        return _wh
+
+    @staticmethod
+    def provider_name():
+        return "paddle"
+
+
+class _FakeRequest:
+    def __init__(self, body, header):
+        self._body = body
+        self.headers = {"paddle-signature": header}
+
+    async def body(self):
+        return self._body
+
+
+@contextmanager
+def _mounted(db):
+    previous = (main.database, main.payments)
+    main.database, main.payments = db, _FakePayments()
+    try:
+        yield db
+    finally:
+        main.database, main.payments = previous
+
+
+def _deliver(db, body=_BODY, header=None):
+    """One webhook delivery through the real route. Returns the response dict, or
+    the HTTP status for the paths that raise."""
+    with _mounted(db):
+        try:
+            return run(main.billing_webhook(_FakeRequest(body, header or _sign(body))))
+        except HTTPException as error:
+            return {"status": error.status_code}
+
+
+_db = _FakeDatabase()
+
+check("the first delivery grants", _deliver(_db)["action"], "grant_plan")
+check("  and writes one order", len(_db.orders), 1)
+check("  and sets the plan once", len(_db.plans), 1)
+check("  recording the paddle transaction id", _db.orders[0]["providerRef"], "txn_555")
+check("  with the price from the catalogue, not the payload",
+      _db.orders[0]["amountCents"], STARTER["amountCents"])
+
+check("the second delivery is a duplicate", _deliver(_db)["action"], "duplicate")
+check("the third delivery is a duplicate", _deliver(_db)["action"], "duplicate")
+check("  and the order count never moved", len(_db.orders), 1)
+check("  and the plan was not re-granted", len(_db.plans), 1)
+
+# A DIFFERENT event still writes - the claim de-duplicates, it does not block.
+_other = dict(_EVENT, event_id="evt_02")
+_other_body = _json.dumps(_other).encode("utf-8")
+check("a different event still grants", _deliver(_db, _other_body)["action"], "grant_plan")
+check("  so two events wrote two orders", len(_db.orders), 2)
+
+# THE FAILED-WRITE PATH, and the reason the release exists. A claim held by a
+# delivery that then failed to write would suppress every retry of the only event
+# that could fix it - a charged customer with no order and no code path left to
+# produce one. 503 asks Paddle to redeliver; the release makes the redelivery
+# something other than a duplicate.
+_blip = _FakeDatabase(fail_on="create_order")
+check("a failed write asks for a retry", _deliver(_blip)["status"], 503)
+check("  and wrote no order", len(_blip.orders), 0)
+check("  and released the claim", _blip.released, ["evt_01"])
+check("  so the claim is free again", "evt_01" in _blip.claims, False)
+
+_blip.fail_on = ""
+check("  and the redelivery succeeds", _deliver(_blip)["action"], "grant_plan")
+check("  writing the order the customer paid for", len(_blip.orders), 1)
+
+# A claim that cannot be READ is not a claim that says "no". Guessing either way is
+# wrong, so the endpoint declines to guess and asks for the event again.
+check("an unreadable claim asks for a retry too",
+      _deliver(_FakeDatabase(fail_on="claim"))["status"], 503)
+
+# A bad signature never reaches the claim at all.
+_unsigned = _FakeDatabase()
+check("a bad signature is ignored, not claimed",
+      _deliver(_unsigned, header="ts=1;h1=" + "a" * 64)["action"], "ignored")
+check("  and nothing was claimed", len(_unsigned.claims), 0)
+check("  and nothing was written", len(_unsigned.orders), 0)
 
 
 print(f"\n{PASS_COUNT} passed, {FAIL_COUNT} failed")

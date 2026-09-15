@@ -122,15 +122,26 @@ export function groupByTier(findings) {
      Tier 1 skipped  "there is no login page, so there was nothing to check"
                      — no action available, nothing withheld from the reader.
 
-     Tier 2 skipped  "a CSRF token, a WAF or a rate limiter turned both probes
-                     away, so this control is UNVERIFIED" — the client paid for
-                     an answer and did not get one, and there is something they
-                     can do about it.
+     Tier 2 skipped  "this was attempted against the account you supplied and
+                     reached no conclusion, so this control is UNVERIFIED" — the
+                     client paid for an answer and did not get one, and there is
+                     usually something they can do about it.
 
    Rendering both as a grey "Skipped" pill files the second under the first. The
    backend already refuses to call that case passed (see the guard in
    account_enumeration_check.py); this is the same refusal carried into the UI,
    which is where the client actually reads it.
+
+   THE TIER 2 REASONS ARE PLURAL, AND DELIBERATELY NOT ENUMERATED HERE. When this
+   function was written, account_enumeration_check was the only Tier 2 check and a
+   blocked probe was the only way to reach this state. It is now one of several:
+   the sign-in itself may never have succeeded (session_skip_finding in
+   _session.py, shared by all four newer checks); a sign-out endpoint may be
+   missing or may refuse the request; a settings page may return a login screen; a
+   login hop may expose no Set-Cookie line; a probe page may look identical signed
+   in and signed out. Each finding's own explanation names its reason, which is
+   why this predicate tests only tier and severity — it is the one property they
+   share, and a list here would go stale the next time a check is added.
 -------------------------------------------------------------------------------*/
 export function isUnverified(finding) {
   return Boolean(finding) && finding.severity === 'skipped' && finding.tier === 2

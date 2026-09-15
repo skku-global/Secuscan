@@ -2,12 +2,22 @@
    PRICING.JS — the plan cards on the landing page.
 
    WHY THIS FILE EXISTS: this was the last live export in mocks/scanData.js, and
-   it is not a mock. The prices are the real intended prices, and as of this
-   session the buttons work — Starter and Business go to /checkout/:planId, which
-   is a real page posting to a real endpoint. What is still not real is the money:
-   the server's only payment provider validates the SHAPE of a card and grants the
-   plan without charging anything. See payments/mock_card.py, which is emphatic
-   about it. So the data is real, the flow is real, and the charge is fictional.
+   it is not a mock. The prices are the real prices, the buttons work — Starter and
+   Business go to /checkout/:planId, which is a real page posting to a real
+   endpoint — and the money is real now too. The server charges through Paddle,
+   which is the Merchant of Record, so a subscription bought here is a subscription
+   the customer is billed for. The legal pages at /terms, /privacy and /refund
+   describe that arrangement and are the authority on it; this file only carries
+   the prices and the addresses those pages are linked from.
+
+   A previous version of this comment said "the charge is fictional" because the
+   only provider was a card-shape validator in payments/mock_card.py. That is no
+   longer true, and the correction matters: a reader who believes checkout is a
+   demo will not think twice about the subscription terms. The mock provider still
+   exists and is still used in development, but it is selected EXPLICITLY with
+   SECUSCAN_PAYMENT_PROVIDER=mock and can never be substituted for a
+   misconfigured Paddle — granting paid plans for free is not a degraded mode. See
+   payments/__init__.py and the startup warnings in config.py.
 
    NOTE the distinction, because it is easy to conflate the two:
      - `tier` is the CHECK DEPTH from spec section 5 (Tier 1 external,

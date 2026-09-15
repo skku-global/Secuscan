@@ -1219,6 +1219,119 @@ async def change_password(
 
 
 # WHY THIS EXISTS
+# The "get help" box in Settings. A contact form that posts nowhere is worse than an
+# address that works, so this is the endpoint that makes the form honest.
+#
+# WHY IT REQUIRES A SESSION, which is the decision that shapes everything else here:
+# the sender's address is taken from the authenticated account and NOT from the
+# request body. An anonymous form with a "your email" field is a way to make mail
+# arrive at the support mailbox appearing to come from anybody - and a way to make
+# this server send mail on a stranger's behalf, which is the same shape of abuse the
+# Tier 2 password-reset check is gated against. Requiring a session costs a logged-out
+# user nothing: the mailto: links on the public pages already reach the same mailbox.
+#
+# THE ORDER MATTERS, and it is the same order as change_password above:
+#
+#   1. Rate limit first. Even with a session this sends mail, and a send loop is a
+#      way to flood the support mailbox from one account.
+#   2. Refuse honestly if email is not configured. A 503 rather than accepting the
+#      message and dropping it - the UI hides the form when emailAvailable is false,
+#      so reaching this is a direct call or a config that changed mid-session.
+#   3. Send, and report whether the provider took it. A False from the mailer becomes
+#      a 502: the message did NOT go, and telling the user it did would leave them
+#      waiting for an answer to something nobody received.
+class ContactRequest(BaseModel):
+    subject: str = Field(..., description="What the message is about")
+    message: str = Field(..., description="The message body")
+
+    # The address and name are deliberately NOT fields on this model. They come from
+    # the session in the handler. See the note above - this is the whole security
+    # property of the endpoint, and a field added here would quietly remove it.
+
+    @field_validator("subject")
+    @classmethod
+    def subject_must_not_be_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+
+        if not cleaned:
+            raise ValueError("A subject is required.")
+
+        # An upper bound on anything a user can type that the server will send. Long
+        # enough for a real subject line, short enough that it cannot be used to push
+        # a wall of text through the header of a mail message.
+        if len(cleaned) > 200:
+            raise ValueError("Subject must be 200 characters or fewer.")
+
+        # PYTHON-SPECIFIC: newlines are stripped from the SUBJECT specifically, not
+        # merely trimmed. A newline in a mail header is header injection - it ends the
+        # Subject: line and lets whatever follows be read as another header, which is
+        # how a form like this becomes a way to add recipients. The provider's API
+        # takes the subject as JSON rather than a raw header, so this is defence in
+        # depth rather than the only thing standing between here and that - but it
+        # costs one line and removes the question.
+        return " ".join(cleaned.split())
+
+    @field_validator("message")
+    @classmethod
+    def message_must_not_be_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+
+        if not cleaned:
+            raise ValueError("A message is required.")
+
+        if len(cleaned) > 5000:
+            raise ValueError("Message must be 5000 characters or fewer.")
+
+        return cleaned
+
+
+@app.post("/contact")
+async def send_contact_message(
+    request: ContactRequest,
+    http_request: Request,
+    user: dict = Depends(require_session),
+) -> dict:
+    if _too_many_attempts(_client_key(http_request, "contact")):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many messages. Wait a few minutes and try again.",
+        )
+
+    if not mailer.email_available():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Email delivery is not configured on this server, so the message "
+                f"cannot be sent. Email {config.SUPPORT_EMAIL} directly instead."
+            ),
+        )
+
+    sent = await mailer.send_contact_message(
+        to=config.SUPPORT_EMAIL,
+        subject=request.subject,
+        message=request.message,
+        # From the SESSION. Not from the body - see the note on the model.
+        from_email=user["email"],
+        from_name=user.get("name", ""),
+        user_id=user["id"],
+    )
+
+    if not sent:
+        # The provider refused or was unreachable. The mailer has already printed the
+        # reason for the operator; the user gets the address so the failure does not
+        # leave them with no way through.
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "The message could not be sent just now. Email "
+                f"{config.SUPPORT_EMAIL} directly, or try again in a few minutes."
+            ),
+        )
+
+    return {"sent": True}
+
+
+# WHY THIS EXISTS
 # "Sign out everywhere" - every session on the account, including the one that asked.
 #
 # WHY IT ENDS THE CALLER'S SESSION TOO, which is a real decision and not an oversight:
@@ -3198,7 +3311,7 @@ async def _apply_webhook_action(
         await database.set_user_plan(user_id, plan["id"], subscription)
 
         print(
-            f"[webhook] grant_plan: user {user_id} → {plan['name']} "
+            f"[webhook] grant_plan: user {user_id} -> {plan['name']} "
             f"(order {order_id}, txn {result.get('transaction_id')})"
         )
         return {"ok": True, "action": "grant_plan"}
@@ -3368,7 +3481,7 @@ async def _apply_webhook_action(
 
         await database.set_user_plan(user_id, plan_id, updated_subscription)
 
-        print(f"[webhook] sync_subscription: user {user_id} → plan {plan_id}")
+        print(f"[webhook] sync_subscription: user {user_id} -> plan {plan_id}")
         return {"ok": True, "action": "sync_subscription"}
 
     # An action this endpoint does not know about - logged, not crashed.

@@ -20,6 +20,13 @@
 
 import { readToken, clearSession } from './session'
 
+/* The support address, imported rather than retyped, so the fallback message on the
+   contact call below cannot name a different mailbox from the one every other page
+   links to. See the note on CONTACT_EMAIL in pricing.js — this is the BROWSER's copy
+   of the address; the server has its own in config.SUPPORT_EMAIL, and neither can
+   read the other. */
+import { CONTACT_EMAIL } from './pricing'
+
 /* [General] Vite exposes env vars starting with VITE_ on import.meta.env, and
    inlines them at build time. The fallback keeps local development working with
    no .env file at all; deployment sets VITE_API_URL to the real host.
@@ -824,4 +831,38 @@ export async function cancelSubscription() {
    here as the server's own message, so the page can print it unchanged. */
 export async function resumeSubscription() {
   return postAuthed('/billing/resume', undefined, 'Could not resume your plan.')
+}
+
+/* ============================================================================
+   GETTING HELP
+
+   One call, behind a session. See POST /contact in main.py for why it is
+   authenticated: the sender's address is taken from the signed-in account and is
+   deliberately NOT a field here. A "your email" field would let anyone make mail
+   arrive at the support mailbox appearing to come from anyone — so the absence of
+   that parameter from this signature is the security property, not an omission.
+   ========================================================================== */
+
+/* Sends a message to the support mailbox. Returns { sent: true }.
+
+   THREE FAILURES ARRIVE AS THE SERVER'S OWN SENTENCE, and each one names the
+   address to write to instead, so a caller can print the message unchanged rather
+   than inventing a fallback:
+
+     429 — too many messages from this account just now.
+     503 — the server has no email provider configured. The form should already be
+           hidden in that case (status.emailAvailable is false), so this is a
+           config that changed mid-session rather than a normal path.
+     502 — the provider refused or was unreachable. The message did NOT go, and
+           this is why the endpoint does not answer 200 to a send it could not
+           make: a user told "sent" waits for a reply to something nobody has.
+
+   The fallback below is only for a response with no readable body at all. It still
+   names the address, for the same reason the server's three do. */
+export async function sendContactMessage({ subject, message }) {
+  return postAuthed(
+    '/contact',
+    { subject, message },
+    `Could not send your message. Email ${CONTACT_EMAIL} directly instead.`,
+  )
 }

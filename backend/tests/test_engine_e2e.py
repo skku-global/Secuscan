@@ -66,6 +66,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def _record_and_reject(self):
         NON_GET_REQUESTS.append((self.command, self.path))
+
+        # DRAIN THE BODY BEFORE ANSWERING. protocol_version is HTTP/1.1, so the
+        # connection is kept alive and reused. Replying without reading the posted
+        # bytes leaves them in the socket, where the next request on that connection
+        # parses them as its request line - so an alternating 405, 501, 405, 501
+        # comes back, the 501 reading `Unsupported method ('email=...&password=...')`.
+        # Tier 1 never posts, so this was invisible until a Tier 2 scan was pointed at
+        # this fixture: the enumeration check saw 501 for one probe and 405 for the
+        # other, read that as a status discrepancy, and raised a WARNING about a
+        # server that answers every POST identically.
+        length = int(self.headers.get("Content-Length") or 0)
+        if length:
+            self.rfile.read(length)
+
         self.send_response(405)
         self.send_header("Content-Length", "0")
         self.end_headers()

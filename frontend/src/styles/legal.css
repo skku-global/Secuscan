@@ -1,0 +1,167 @@
+/* ============================================================================
+   LEGAL.CSS — the prose column for /terms, /privacy and /refund.
+
+   WHY THIS IS ITS OWN FILE: it styles one kind of page and nothing else in the
+   app renders long-form prose. Putting these rules in base.css would add a dozen
+   selectors no other page can use; putting them in landing.css would tie them to
+   a page they do not appear on.
+
+   WHAT IS DELIBERATELY ABSENT:
+     - NO NEW COLOURS. Every value below is a token from tokens.css, so all three
+       themes (system, navy, white) are already correct with nothing added here.
+     - NO NEW SPACING VALUES. Only the --space scale is used.
+     - NO BORDERED CARD AROUND THE TEXT. A legal document is a document. Boxing it
+       in a panel would make it read as a modal someone wants dismissed.
+
+   THE ONE DECISION WORTH STATING is the measure. --width-prose is 720px, which is
+   about the widest a line of body copy should be before the eye loses its place
+   returning to the left margin. These documents are long and read by scrolling, so
+   the column width is what makes them readable rather than any typographic trick.
+   ========================================================================== */
+
+.legal {
+  /* Room above the title, then the document reads downward. The bottom space is
+     the footer's own padding plus this, so the last paragraph is never jammed
+     against the rule. */
+  padding: var(--space-4) 0 var(--space-12);
+}
+
+.legal-header {
+  padding-bottom: var(--space-6);
+  margin-bottom: var(--space-8);
+  border-bottom: 1px solid var(--border);
+}
+
+/* The revision date, sat under the title as metadata rather than as body copy.
+   --muted because it is not what the reader came for; it is there so they can tell
+   whether they are reading the current version. */
+.legal-updated {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin: var(--space-2) 0 0;
+}
+
+.legal-body {
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  color: var(--ink-secondary);
+}
+
+/* NUMBERED SECTIONS. The h2 is the heading and carries the visual weight; the
+   numbering itself is written in the markup, because a reader referring to
+   "section 4" in an email needs the numbers to be part of the text rather than a
+   CSS counter that renumbers silently the moment a section is inserted. */
+
+.legal-body h2 {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-snug);
+  line-height: var(--leading-snug);
+  color: var(--ink);
+  /* Generous above, tight below: the space above a heading is what groups it with
+     the text that follows, and it has to beat the space between paragraphs. */
+  margin: var(--space-10) 0 var(--space-3);
+}
+
+/* The first heading sits directly under the header rule, which already provides
+   the separation. Doubling it would leave a gap wide enough to read as a missing
+   section. */
+.legal-body h2:first-child {
+  margin-top: 0;
+}
+
+.legal-body h3 {
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+  margin: var(--space-6) 0 var(--space-2);
+}
+
+.legal-body p {
+  margin: 0 0 var(--space-4);
+}
+
+.legal-body ul,
+.legal-body ol {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-6);
+}
+
+.legal-body li {
+  margin-bottom: var(--space-2);
+}
+
+.legal-body li:last-child {
+  margin-bottom: 0;
+}
+
+/* Emphasis inside a policy is nearly always a defined term or a hard limit — the
+   24-hour window, the word "never" — and both need to be findable at a glance
+   rather than only when read in order. */
+.legal-body strong {
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+}
+
+/* A LINK IN A DOCUMENT IS AN ADDRESS. It is underlined at rest here, unlike the
+   footer's links, because inside prose a coloured word with no underline is
+   indistinguishable from emphasis and the reader cannot tell it is clickable. */
+.legal-body a {
+  color: var(--navy);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.legal-body a:hover {
+  color: var(--navy-hover);
+}
+
+.legal-body a:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+/* THE ONE PANEL IN THE FILE, used for the summary a reader should see even if they
+   read nothing else — the short version of the refund window, the authorisation
+   point in the Terms, the headline of the privacy commitments. A tinted ground
+   reads as a callout without introducing a colour: --navy-tint-soft is already in
+   the palette and used elsewhere for the same "this is set apart" purpose. */
+.legal-note {
+  background: var(--navy-tint-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  margin: 0 0 var(--space-6);
+}
+
+.legal-note p:last-child {
+  margin-bottom: 0;
+}
+
+/* CONTACT DETAILS. The address is the one piece of literal text a reader may copy
+   out, so it is set in the mono face with ligatures off — the same treatment the
+   app gives URLs and ids. See .mono in base.css for why. */
+.legal-contact {
+  margin-top: var(--space-8);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.legal-contact a {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 560px) {
+  .legal-body {
+    font-size: var(--text-base);
+  }
+
+  .legal-body h2 {
+    margin-top: var(--space-8);
+  }
+}

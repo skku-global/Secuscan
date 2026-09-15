@@ -214,6 +214,20 @@ RESEND_API_KEY = _text("RESEND_API_KEY")
 # form ("SecuScan <security@example.com>") is accepted as-is.
 EMAIL_FROM = _text("SECUSCAN_EMAIL_FROM")
 
+# WHERE THE CONTACT FORM'S MESSAGES LAND. Read by POST /contact, which is the
+# authenticated "get help" box in Settings.
+#
+# THIS IS NOT THE SAME SETTING AS EMAIL_FROM, and the distinction is the whole
+# reason it exists separately: EMAIL_FROM is the address the app sends AS, and must
+# be on a domain verified with the provider. This is the address the app sends TO
+# when a user asks for help, and it is an ordinary mailbox somebody reads.
+#
+# The frontend has its own copy in lib/pricing.js (CONTACT_EMAIL) for the mailto:
+# links a browser opens directly. That one cannot be read from here - it is baked
+# into a static bundle at build time - so the two are maintained together
+# deliberately rather than by accident. This one is what the SERVER mails.
+SUPPORT_EMAIL = _text("SECUSCAN_SUPPORT_EMAIL", "admin@skkuglobal.com")
+
 
 # --- Payments --------------------------------------------------------------
 

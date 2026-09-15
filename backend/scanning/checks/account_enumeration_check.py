@@ -39,6 +39,7 @@ from uuid import uuid4
 import httpx
 
 from ._finding import PASSED, SKIPPED, WARNING, TIMEOUT_SECONDS, USER_AGENT, finding_builder
+from ._session import _BLOCKED_HINTS, _BLOCKED_STATUSES, _field_names, visible_text
 
 _log = logging.getLogger("checks.account_enumeration")
 
@@ -46,9 +47,6 @@ CHECK_ID = "account_enumeration_check"
 
 # Tier 2 finding builder: stamps findings with "tier": 2
 _build_finding = finding_builder(CHECK_ID, tier=2)
-
-# Common field name patterns for authentication forms
-USERNAME_FIELD_HINT = re.compile(r"(user|email|login|account|identifier|name)", re.I)
 
 # Distinctive error strings indicating explicit account existence or absence
 USER_NOT_FOUND_HINTS = re.compile(
@@ -59,13 +57,13 @@ USER_NOT_FOUND_HINTS = re.compile(
 )
 
 # Responses that mean the probe was turned away before the application ever looked up
-# an account. These are the false-PASS family: they come back identical for both
-# probes, which is this check's success condition, while testing nothing whatsoever.
-BLOCKED_HINTS = re.compile(
-    r"(csrf|xsrf|forbidden|access denied|too many requests|rate limit|"
-    r"are you a robot|captcha|request blocked|not allowed)",
-    re.I,
-)
+# an account. These are the false-PASS family: they come back identical for both probes,
+# which is this check's success condition, while testing nothing whatsoever.
+#
+# IMPORTED, NOT COPIED. This was a local copy that had drifted from _session.py's - it
+# never learned the WAF product names, so a scan stopped by Cloudflare produced two
+# identical interstitials and read as a clean pass. See the note on _BLOCKED_HINTS there.
+BLOCKED_HINTS = _BLOCKED_HINTS
 
 WRONG_PASSWORD_HINTS = re.compile(
     r"(incorrect password|wrong password|invalid password|bad password|"
@@ -76,8 +74,23 @@ WRONG_PASSWORD_HINTS = re.compile(
 
 # Statuses that mean the request was turned away before any account lookup happened.
 # Both probes get the same one, which is indistinguishable from a clean pass unless it
-# is checked for explicitly.
-_PRE_AUTH_STATUSES = frozenset({403, 405, 419, 429, 501, 502, 503, 504})
+# is checked for explicitly. Same list, same reason, same object as _session.py's.
+_PRE_AUTH_STATUSES = _BLOCKED_STATUSES
+
+# A 404 IS NOT A WALL AND IT IS CERTAINLY NOT A PASS. Kept separate from the wall set
+# above, and local to this file, because the two mean different things to a reader and
+# to _session: a wall is something standing in front of the application, while this is
+# the application saying there is nothing here at all. No authentication logic runs at a
+# 404, so two 404s cannot be evidence about account existence - yet they are byte for
+# byte identical, which is this check's PASS condition. The report then read "returned
+# identical HTTP 404 responses" as a clean bill of health, most easily reached by the
+# /api/login fallback below, which is a guess by construction.
+#
+# BOTH sides must be in this set, exactly as with the wall gate, and here that is not a
+# detail: 404 for an unknown account against 401 for a known one is the single most
+# blatant shape this leak takes, and section 3 of the suite pins it. A guard that fired
+# on either side alone would delete the check's best finding.
+_NO_ENDPOINT_STATUSES = frozenset({404, 410})
 
 
 def _mask_account(value: str) -> str:
@@ -118,10 +131,12 @@ def _extract_error_message(response: httpx.Response) -> str:
     except Exception:
         pass
 
-    # Strip HTML tags for basic text extraction
-    clean_text = re.sub(r"<[^>]+>", " ", response.text)
-    clean_text = " ".join(clean_text.split())
-    return clean_text[:300]
+    # The visible text, which drops script and style bodies before the tags. This check
+    # compares two messages for being distinguishable, so an inline script is doubly
+    # dangerous here: it ships the site's whole error vocabulary ("user not found",
+    # "invalid password") to BOTH probes identically, which both plants the hints this
+    # check searches for and makes the two responses look reassuringly the same.
+    return visible_text(response)[:300]
 
 
 async def check_account_enumeration(target) -> dict:
@@ -148,27 +163,36 @@ async def check_account_enumeration(target) -> dict:
     # Determine base host / URL
     base_url = str(credentials.get("stagingUrl") or target.url or "").strip()
 
+    # WHICH FIELD NAMES TO POST UNDER - read from _session, not worked out again here.
+    #
+    # This file used to carry its own copy of that loop and its own copy of the username
+    # name-hint, and the copy had every defect the shared one was fixed for: it tested the
+    # NAME before the TYPE, so `<input type="submit" name="login">`, a "remember my
+    # username" checkbox and a trailing OTP box all matched - and it assigned as it went,
+    # so the LAST match won, which is precisely where those fields sit in a form. Three of
+    # ten ordinary login forms went out under the wrong field name.
+    #
+    # THE COST HERE IS NOT A FAILED LOGIN, IT IS A FALSE PASSED. The username never
+    # reaches the server, so both probes are turned away identically - and identical
+    # responses are this check's pass condition. Against a mock that really does leak,
+    # the same site reports WARNING with a plain form and PASSED once an ordinary submit
+    # button named "login" is added to it. A customer who enumerates was told they do not.
+    #
+    # NEVER COPY BETWEEN CHECK MODULES, IMPORT. Third time this rule has been broken in
+    # this directory, third time both copies had drifted. One difference is deliberate and
+    # is an improvement: _field_names carries hidden CSRF fields through, where this copy
+    # dropped them. An unusable token is detected as a wall and skipped; a missing one is
+    # more likely to come back as a 400, which lands in the PASSED branch.
+    username_field, password_field, extra_fields = _field_names(target)
+
     # Locate login form or login page endpoint
     login_form = target.login_form()
     submit_url = None
     method = "POST"
-    username_field = "email"
-    password_field = "password"
-    extra_fields = {}
 
     if login_form is not None:
         submit_url = urljoin(target.login.url if target.login else base_url, login_form.submit_url or "")
         method = (login_form.method or "POST").upper()
-
-        # Identify form field names
-        for f in login_form.fields:
-            if f.type == "password":
-                password_field = f.name or "password"
-            elif USERNAME_FIELD_HINT.search(f.name or "") or f.type in ("text", "email"):
-                username_field = f.name or "email"
-            elif f.type == "hidden" and f.name and "csrf" not in f.name.lower():
-                # Keep static nonces/flags
-                extra_fields[f.name] = f.attrs.get("value", "")
     else:
         # Fallback to standard auth endpoints on target URL
         if target.login and target.login.url:
@@ -292,13 +316,55 @@ async def check_account_enumeration(target) -> dict:
     # tested is more damaging than no finding at all, because it is the point at which
     # the client stops looking. So an endpoint that was never reached is SKIPPED, and
     # the finding says which wall the probes hit.
+    #
+    # BOTH statuses are tested against the pre-auth set, and they do NOT have to match.
+    # Requiring them to be equal was a real gap, and the comment above named the case it
+    # missed: "a rate limiter that engaged partway through the rounds above" turns the
+    # later probe away with a DIFFERENT status from the earlier one - 403 then 429, say -
+    # and the probes run alternately, so a limiter tripping mid-run lands on one and not
+    # the other. That reached `status_diff` below and was reported as "the endpoint
+    # returns different status codes for valid vs invalid accounts": a WARNING about
+    # account enumeration, raised against a server that never looked up an account.
+    # Neither 403 nor 429 says anything about whether an account exists, so when both
+    # sides are pre-auth there is nothing to compare and the honest answer is SKIPPED.
     blocked_status = (
-        res_existing.status_code == res_nonexistent.status_code
-        and res_existing.status_code in _PRE_AUTH_STATUSES
+        res_existing.status_code in _PRE_AUTH_STATUSES
+        and res_nonexistent.status_code in _PRE_AUTH_STATUSES
     )
     blocked_text = bool(
         BLOCKED_HINTS.search(msg_existing) and BLOCKED_HINTS.search(msg_nonexistent)
     )
+
+    if (
+        res_existing.status_code in _NO_ENDPOINT_STATUSES
+        and res_nonexistent.status_code in _NO_ENDPOINT_STATUSES
+    ):
+        return _build_finding(
+            severity=SKIPPED,
+            title="No authentication endpoint was found to test",
+            description=(
+                "Both enumeration probes were answered with HTTP "
+                f"{res_existing.status_code}, so there was no authentication logic to test"
+            ),
+            explanation=(
+                f"Both probes to {submit_url} were answered with HTTP "
+                f"{res_existing.status_code}. Nothing at that address looked up an "
+                "account, so this check has no evidence either way.\n\n"
+                "This usually means the scan could not find your sign-in form and fell "
+                "back to a conventional path that your application does not use - a "
+                "single-page application that authenticates through its own API is the "
+                "common case.\n\n"
+                "Reported as skipped rather than passed on purpose: two identical "
+                "responses are what a passing result looks like here, and an address "
+                "that answers nothing at all would otherwise read as a clean bill of "
+                "health."
+            ),
+            fix=(
+                "Enter your sign-in page or authentication endpoint directly in the "
+                "Tier 2 access form and re-run the scan."
+            ),
+            evidence=evidence,
+        )
 
     if blocked_status or blocked_text:
         return _build_finding(
@@ -309,9 +375,10 @@ async def check_account_enumeration(target) -> dict:
                 "authentication logic, so account enumeration was not tested"
             ),
             explanation=(
-                f"Both probes to {submit_url} were turned away identically "
-                f"(HTTP {res_existing.status_code}) without the application appearing to "
-                "look up an account.\n\n"
+                f"Both probes to {submit_url} were turned away before the application "
+                f"appeared to look up an account (HTTP {res_existing.status_code} for the "
+                f"existing account, HTTP {res_nonexistent.status_code} for the "
+                "nonexistent one).\n\n"
                 "This usually means one of: the endpoint requires a CSRF token or nonce "
                 "that this check does not carry, a WAF or bot filter intercepted the "
                 "request, rate limiting engaged during the probe rounds, or the URL "

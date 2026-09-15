@@ -45,10 +45,20 @@ export default function SeverityBadge({ severity, tier }) {
 
      'skipped' arrives from both tiers and means the opposite thing in each. A
      Tier 1 skip is "there was no login page, so there was nothing to look at" —
-     nothing was withheld and nothing can be done. A Tier 2 skip is "a CSRF
-     token, a WAF or a rate limiter turned the probes away before they reached
-     your authentication logic" — a control the client paid to have verified was
-     NOT verified, and there is a concrete step that would fix that.
+     nothing was withheld and nothing can be done. A Tier 2 skip is "this was
+     attempted against the account you supplied and reached no conclusion" — a
+     control the client paid to have verified was NOT verified, and there is
+     usually a concrete step that would fix that.
+
+     The reason varies by check and each finding's own explanation names it: the
+     sign-in itself never succeeded (any Tier 2 check — see session_skip_finding
+     in _session.py); a CSRF token, a WAF or a rate limiter turned the probes
+     away (enumeration); no sign-out endpoint, a refused sign-out, or a probe
+     page that looks identical signed in and signed out (logout); every candidate
+     settings page returned a login screen (two-factor); no Set-Cookie line was
+     visible on the login hop (session cookie). What they share is the part this
+     function keys on — an answer was paid for, none was reached, and the result
+     must not be read as a pass.
 
      A grey pill reading "Skipped" is the correct label for the first and a quiet
      misfiling of the second. This is the same failure the check itself guards

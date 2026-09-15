@@ -32,6 +32,10 @@ from .checks.mfa_check import check_mfa
 from .checks.password_check import check_password
 from .checks.rate_limit_check import check_rate_limit
 from .checks.account_enumeration_check import check_account_enumeration
+from .checks.session_cookie_check import check_session_cookie
+from .checks.logout_check import check_logout
+from .checks.password_reset_check import check_password_reset
+from .checks.two_factor_check import check_two_factor
 from .discovery import ScanTarget, discover
 from credentials import scrub_credentials
 
@@ -50,6 +54,10 @@ TIER1_CHECKS = [
 
 TIER2_CHECKS = [
     check_account_enumeration,
+    check_session_cookie,
+    check_logout,
+    check_password_reset,
+    check_two_factor,
 ]
 
 # Kept for backwards compatibility with tests and callers expecting CHECKS
@@ -150,10 +158,19 @@ def calculate_score(findings: list) -> int:
 #
 # It is deliberately a WARNING and never a PASSED. A check that crashed observed
 # nothing, and nothing observed can never be reported as nothing wrong.
-def _crash_finding(check_name: str, exc: BaseException) -> dict:
+def _crash_finding(check_name: str, exc: BaseException, tier: int = 1) -> dict:
     return {
         "id": check_name,
         "checkId": check_name,
+        # WHY tier IS HERE AND WAS NOT BEFORE
+        # Every finding a check builds carries a tier, because _finding.py's builder puts
+        # one on unconditionally - and the report splits the two tiers into separate
+        # sections by reading it. This dict is assembled by hand rather than through that
+        # builder, so it was the one finding in the system with no tier on it: a crashed
+        # Tier 2 check rendered in the Tier 1 section, filed under checks the client did
+        # not pay for and did not run. The caller passes the tier of the registry the
+        # check came from, which is the only place that knows it.
+        "tier": tier,
         "title": "A check could not be completed",
         "description": f"The {check_name} check stopped with an internal error",
         "severity": WARNING,
@@ -225,7 +242,11 @@ async def run_scan(
         findings = []
         for check, result in zip(active_checks, results):
             if isinstance(result, BaseException):
-                findings.append(_crash_finding(check.__name__, result))
+                # The tier comes from the registry the check is actually in, not from the
+                # scan's tier: a Tier 1 check crashing during a Tier 2 scan is still a
+                # Tier 1 result and belongs in that section of the report.
+                check_tier = 2 if check in TIER2_CHECKS else 1
+                findings.append(_crash_finding(check.__name__, result, tier=check_tier))
             else:
                 findings.append(result)
 

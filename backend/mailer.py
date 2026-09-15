@@ -52,7 +52,14 @@ _TIMEOUT_SECONDS = 10.0
 class Sender:
     name = "none"
 
-    async def send(self, to: str, subject: str, text: str, html_body: str) -> bool:
+    # reply_to is OPTIONAL and defaults to empty, so every existing caller keeps
+    # working unchanged. Only the contact form passes it: a support message needs
+    # to arrive so that pressing Reply reaches the user who sent it, and without
+    # this it would arrive from EMAIL_FROM - a no-reply address on a verified
+    # domain - and the reply would go to the app rather than the person.
+    async def send(
+        self, to: str, subject: str, text: str, html_body: str, reply_to: str = ""
+    ) -> bool:
         # A sender that has not been configured. Returns False rather than raising,
         # so an unconfigured deployment degrades to "email does not work" instead
         # of "the recovery endpoint 500s".
@@ -71,7 +78,9 @@ class ResendSender(Sender):
         self._api_key = api_key
         self._from = from_address
 
-    async def send(self, to: str, subject: str, text: str, html_body: str) -> bool:
+    async def send(
+        self, to: str, subject: str, text: str, html_body: str, reply_to: str = ""
+    ) -> bool:
         headers = {
             # Resend uses a bearer token, the same shape as our own session
             # tokens. The key is read from config and never logged.
@@ -92,6 +101,13 @@ class ResendSender(Sender):
             "text": text,
             "html": html_body,
         }
+
+        # ADDED ONLY WHEN ASKED FOR. Resend rejects a malformed reply_to, and an
+        # empty string is malformed - so the key is absent rather than blank on
+        # every message that does not need one, which is all of them but the
+        # contact form.
+        if reply_to:
+            payload["reply_to"] = reply_to
 
         try:
             # PYTHON-SPECIFIC: `async with` closes the client even if the request
@@ -134,9 +150,13 @@ class ResendSender(Sender):
 class ConsoleSender(Sender):
     name = "console"
 
-    async def send(self, to: str, subject: str, text: str, html_body: str) -> bool:
+    async def send(
+        self, to: str, subject: str, text: str, html_body: str, reply_to: str = ""
+    ) -> bool:
         print("=" * 70)
         print(f"[mailer:console] TO: {to}")
+        if reply_to:
+            print(f"[mailer:console] REPLY-TO: {reply_to}")
         print(f"[mailer:console] SUBJECT: {subject}")
         print("-" * 70)
         print(text)
@@ -315,3 +335,75 @@ async def send_password_reset_code(to: str, code: str, name: str = "") -> bool:
 </div>"""
 
     return await _sender.send(to, subject, text, html_body)
+
+
+# WHY THIS EXISTS
+# The Settings contact form's message, sent to the support mailbox rather than to a
+# user. It is the only mail in this file whose body is written by a human at the
+# other end, and that single difference drives every decision in it.
+#
+#   1. THE SENDER IS TAKEN FROM THE SESSION, NEVER FROM THE REQUEST BODY. The
+#      endpoint passes the authenticated user's own address and name. If the form
+#      carried a "your email" field, anybody could make a message appear to come
+#      from anybody - and the person reading this mailbox would have no way to
+#      tell. This is why the contact endpoint requires a session at all.
+#   2. THE BODY IS ESCAPED, and it is the first message here where that is load-
+#      bearing rather than defensive. A recovery code is six digits this app
+#      generated; this is free text a user typed, so "<script>" in a support
+#      message must arrive as the characters the user typed - some mail clients
+#      render HTML, and the mailbox reading it belongs to us.
+#   3. REPLY-TO IS THE USER. Support mail that cannot be replied to is a contact
+#      form that only pretends to be one. The FROM stays EMAIL_FROM, because that
+#      is the verified domain the provider will accept; Reply-To is what makes the
+#      reply reach the person.
+#   4. THE ACCOUNT IS IDENTIFIED. The user id and address are stated in the body,
+#      so a message about a billing or scan problem can be traced to an account
+#      without asking the sender to repeat something the server already knows.
+async def send_contact_message(
+    to: str,
+    subject: str,
+    message: str,
+    from_email: str,
+    from_name: str = "",
+    user_id: str = "",
+) -> bool:
+    app = config.APP_NAME
+
+    who = f"{from_name} <{from_email}>" if from_name else from_email
+
+    # Prefixed so these are filterable in the mailbox, and the sender is named in
+    # the body so a triaging reader does not have to open the message.
+    full_subject = f"[{app} contact] {subject}"
+
+    text = (
+        f"From: {who}\n"
+        f"Account: {user_id or 'unknown'}\n\n"
+        f"{message}\n\n"
+        "--\n"
+        f"Sent from the {app} contact form. Reply to this email to answer the user."
+    )
+
+    safe_app = html.escape(app)
+    safe_who = html.escape(who)
+    safe_user_id = html.escape(user_id or "unknown")
+    safe_subject = html.escape(subject)
+
+    # PYTHON-SPECIFIC: escape FIRST, then turn newlines into <br> on the escaped
+    # text. The other order would insert real markup and then escape it, so every
+    # <br> would arrive as visible characters in the message.
+    safe_message = html.escape(message).replace("\n", "<br>")
+
+    html_body = f"""\
+<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+            font-size:15px;line-height:1.55;color:#1A1D23;max-width:620px">
+  <p style="color:#5A6472;font-size:13px;margin-bottom:4px">
+    From <strong style="color:#1A1D23">{safe_who}</strong><br>
+    Account <code>{safe_user_id}</code>
+  </p>
+  <p style="font-weight:600;font-size:16px;margin:16px 0 8px">{safe_subject}</p>
+  <div style="padding:16px 20px;background:#F5F6F8;border-radius:10px">{safe_message}</div>
+  <p style="color:#8A94A6;font-size:13px">Sent from the {safe_app} contact form.
+     Reply to this email to answer the user.</p>
+</div>"""
+
+    return await _sender.send(to, full_subject, text, html_body, reply_to=from_email)

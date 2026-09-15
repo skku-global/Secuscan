@@ -371,6 +371,46 @@
    beside a wrapping email address leaves the value squeezed into a strip.
    -------------------------------------------------------------------------- */
 
+/* ----------------------------------------------------------------------------
+   THE CONTACT FORM
+
+   Two rules, both for the same reason: this is the one form on the page whose
+   content is prose the user wrote rather than a value they typed, and the two
+   defaults that suit a field do not suit a paragraph.
+   -------------------------------------------------------------------------- */
+
+/* A link inside the muted explanatory text, which `.set-text` and `.auth-fine`
+   both render in `--muted`. An address that is the same colour as the sentence
+   around it stops looking like the way out, at exactly the moment somebody is
+   looking for one. Underlined as well as coloured: colour alone is not a
+   sufficient signal, and this link sits inside body copy where there is no
+   button styling to distinguish it. */
+.set-link {
+  color: var(--navy);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.set-link:hover { color: var(--ink); }
+
+/* WHY A TEXTAREA GETS ITS OWN RULE: `.input` sizes a single line by its padding,
+   and a textarea given that treatment defaults to about two rows — a support
+   message box you cannot see your own message in. `resize: vertical` rather than
+   the browser default `both`: horizontal resizing lets the user pull the field
+   wider than the card it sits in, which breaks the layout rather than adjusting
+   it. Vertical-only is the direction that actually helps someone writing. */
+.set-textarea {
+  resize: vertical;
+  /* The base `.input` line-height is set for one line of text. At 1.5 in a field
+     six rows tall, the paragraph reads as loose — this is prose, so the tighter
+     value is both more compact and easier to scan back over. */
+  line-height: 1.45;
+  /* [General] Monospace-free, unlike the recovery codes: this is the user's own
+     writing, not a value they have to transcribe exactly. */
+  font-family: inherit;
+}
+
+
 @media (max-width: 560px) {
   .set-fact {
     /* Label above value. `1fr` alone — one column — and the gap shrinks because the

@@ -88,12 +88,20 @@ MAX_PROBES = 8
 # Link text and hrefs that suggest a sign-in or signup destination.
 #
 # PYTHON-SPECIFIC: re.compile builds the pattern object once at import instead of
-# re-parsing the string on every call. re.I is the case-insensitive flag. The "?"
-# after a space makes that space optional, so one pattern matches "login", "log in"
-# and "Log In".
-LOGIN_HINT = re.compile(r"(log ?in|sign ?in|signin|/auth\b|my account)", re.I)
+# re-parsing the string on every call. re.I is the case-insensitive flag.
+#
+# [ _-]? RATHER THAN THE SPACE THESE USED TO ALLOW. The pattern was written for link
+# TEXT, where "Sign In" and "Signin" are the only two spellings - but it is applied to
+# the HREF as well, and a URL never contains a space. It contains the separator the
+# framework chose: Rails ships /users/sign_in, and /sign-in is common enough to be in
+# the guessed-path list below. Neither matched. That only cost anything when the login
+# lives somewhere the guessed paths do not reach and the link was the sole evidence,
+# but in that case it cost the whole scan, and a wrong hint here is cheap by
+# construction: one probe out of MAX_PROBES, and _is_login_page still demands a
+# password field before anything is believed.
+LOGIN_HINT = re.compile(r"(log[ _-]?in|sign[ _-]?in|/auth\b|my account)", re.I)
 SIGNUP_HINT = re.compile(
-    r"(sign ?up|signup|register|create (an |your )?account|get started|join)", re.I
+    r"(sign[ _-]?up|register|create[ _-]?(an |your )?account|get started|join)", re.I
 )
 
 # A signup form usually asks for the password twice, or asks for a name. Used to
@@ -212,23 +220,56 @@ class ScanTarget:
     credentials: dict | None = None
 
     def login_form(self) -> Form | None:
+        """The form the test credentials should be posted to, or None.
+
+        A SIGNUP FORM IS NEVER THE ANSWER HERE, and this is the one place in discovery
+        where picking the wrong form does something to the client's site rather than to
+        our report. _session.py posts the client's username and password at whatever
+        this returns; aimed at a registration form, that is an attempt to CREATE AN
+        ACCOUNT on a production system nobody asked us to write to. "First form with a
+        password box" is enough to hit that: a SaaS homepage that is also its login page
+        usually puts the "Create your account" panel above the fold and the sign-in form
+        below it.
+
+        None rather than a signup form when that is all there is. The caller already
+        handles None - it falls back to posting the conventional field names at the
+        login page's own URL, which is what a JavaScript login screen needs anyway - so
+        the honest answer costs nothing and the tempting one is a write to someone's
+        database.
+        """
         if self.login is None:
             return None
 
         forms = self.login.forms_with_password()
 
-        # PYTHON-SPECIFIC: `forms[0] if forms else None` is the conditional
-        # expression - Python's ternary, with the condition in the middle. Guarded
-        # with `if forms` rather than indexed directly because [0] on an empty list
-        # raises IndexError where JS would hand back undefined.
-        return forms[0] if forms else None
+        for form in forms:
+            if not form.looks_like_signup():
+                return form
+
+        return None
 
     def signup_form(self) -> Form | None:
+        """The registration form, or None. The mirror image of login_form.
+
+        Same reasoning in the other direction: a signup page very often carries a
+        "already have an account?" sign-in form too, and the password-policy check
+        reading the login form instead would judge the site on a form that enforces no
+        policy at all. Here the fallback IS the first form, because nothing posts to
+        this one - it is read, not submitted.
+        """
         if self.signup is None:
             return None
 
         forms = self.signup.forms_with_password()
 
+        for form in forms:
+            if form.looks_like_signup():
+                return form
+
+        # PYTHON-SPECIFIC: `forms[0] if forms else None` is the conditional
+        # expression - Python's ternary, with the condition in the middle. Guarded
+        # with `if forms` rather than indexed directly because [0] on an empty list
+        # raises IndexError where JS would hand back undefined.
         return forms[0] if forms else None
 
 
@@ -265,6 +306,12 @@ class _PageParser(HTMLParser):
         # HTML but it appears in the wild, and a boolean would be switched off by the
         # first closing tag and leak JavaScript into the page text.
         self._suppress_depth = 0
+        # A SECOND COUNTER, AND NOT THE SAME ONE. _suppress_depth hides TEXT; this
+        # hides STRUCTURE - forms, fields and links - and only <template> sets it.
+        # The two lists differ by exactly <noscript>, which is the point: its text is
+        # not what a browser shows, but its markup is real markup for a client that
+        # runs no JavaScript, which is what this scanner is.
+        self._inert_depth = 0
         self._current_link_href: str | None = None
         self._current_link_text: list[str] = []
 
@@ -283,6 +330,23 @@ class _PageParser(HTMLParser):
 
         if tag in ("script", "style", "noscript", "template"):
             self._suppress_depth += 1
+
+            if tag == "template":
+                self._inert_depth += 1
+
+            return
+
+        # NOTHING INSIDE <template> IS REAL. Its contents are inert by specification:
+        # no browser renders them, nobody can type into them, and no form in there can
+        # be submitted until JavaScript clones it somewhere else. Counting one as a
+        # login form is not a cosmetic error - login_form() returns the FIRST form with
+        # a password box, so a "change password" modal template earlier in the document
+        # took the login's place, and the scan then posted the client's credentials at
+        # whatever action the template carried. It also defeats _is_login_page's whole
+        # reason for existing: an SPA shell that serves identical markup for every route
+        # only has to carry one such template for every probed path to look like a login
+        # page.
+        if self._inert_depth:
             return
 
         if tag == "form":
@@ -318,6 +382,10 @@ class _PageParser(HTMLParser):
             return
 
         if tag == "a":
+            # A new <a> ends the one before it. Browsers close an open anchor at the
+            # next block boundary, and markup that relies on that ("<li><a href=/x>One"
+            # repeated down a nav) used to lose every link but the last.
+            self._flush_link()
             self._current_link_href = a.get("href", "")
             self._current_link_text = []
 
@@ -326,6 +394,18 @@ class _PageParser(HTMLParser):
             # max(0, ...) so a stray closing tag with no opener cannot drive the
             # counter negative and permanently suppress the rest of the page.
             self._suppress_depth = max(0, self._suppress_depth - 1)
+
+            if tag == "template":
+                self._inert_depth = max(0, self._inert_depth - 1)
+
+            return
+
+        # END TAGS INSIDE A TEMPLATE ARE AS INERT AS THE START TAGS, and this line is
+        # the more dangerous half of the pair. Guarding only the start tags leaves a
+        # template's </form> free to close the REAL form wrapping it, so every field
+        # after the template - very plausibly the password box - is dropped from the
+        # form and the form itself is recorded half-built.
+        if self._inert_depth:
             return
 
         if tag == "form" and self._current_form is not None:
@@ -333,12 +413,35 @@ class _PageParser(HTMLParser):
             self._current_form = None
             return
 
-        if tag == "a" and self._current_link_href is not None:
-            self.links.append(
-                (self._current_link_href, " ".join(self._current_link_text).strip())
-            )
-            self._current_link_href = None
-            self._current_link_text = []
+        if tag == "a":
+            self._flush_link()
+
+    def _flush_link(self) -> None:
+        """Record the <a> being collected, if there is one."""
+        if self._current_link_href is None:
+            return
+
+        self.links.append(
+            (self._current_link_href, " ".join(self._current_link_text).strip())
+        )
+        self._current_link_href = None
+        self._current_link_text = []
+
+    def finish(self) -> None:
+        """Close what the markup left open. Called once, after the last byte.
+
+        A <form> or an <a> whose closing tag never arrived is still a form and still a
+        link: every browser closes both at the end of the document and submits the form
+        exactly as written. Dropping them was the quiet kind of failure - a login page
+        missing its </form> produced "no login form found", which skips the entire
+        authenticated tier against a site whose only fault is one absent tag, and says
+        so in a note that reads like the site's problem rather than ours.
+        """
+        self._flush_link()
+
+        if self._current_form is not None:
+            self.forms.append(self._current_form)
+            self._current_form = None
 
     def handle_data(self, data: str) -> None:
         if self._suppress_depth:
@@ -381,6 +484,19 @@ def _parse_page(response: httpx.Response) -> Page:
         # a parse failure must degrade to "no forms found" rather than taking down the
         # whole scan. Whatever the parser managed before the error is kept.
         pass
+
+    # BOTH OF THESE RUN EVEN AFTER A PARSE ERROR, which is the same bargain as the
+    # bare except above: keep what was collected.
+    #
+    # close() first, because HTMLParser buffers the tail of the document until it is
+    # told no more is coming - and it is wrapped because close() runs the handlers
+    # above, so it can fail for the same reasons feed() can.
+    try:
+        parser.close()
+    except Exception:
+        pass
+
+    parser.finish()
 
     page_url = str(response.url)
 
@@ -452,6 +568,21 @@ def _same_site(base_host: str, candidate_url: str) -> bool:
 
     if not candidate_host:
         return False
+
+    # "www." IS NOT A SITE BOUNDARY, and leaving it in made one site behave as two.
+    # Nobody can hold www.acme.com without holding acme.com, so the two spellings name
+    # the same owner - but the rule below is "parent or child", and accounts.acme.com
+    # is neither a parent nor a child of www.acme.com. So a customer who typed the
+    # address WITH the www, which is most of them, had the sign-in link on their own
+    # homepage discarded as a third party, got "no login form found", and with it every
+    # authenticated check skipped - while the identical scan of acme.com worked.
+    #
+    # Stripped from the BASE only, never from the candidate: the candidate is the host
+    # a request would actually go to, and the parent/child rule already accepts a www
+    # subdomain of the base. This reaches no host that typing the bare domain would not
+    # have reached already.
+    if base_host.startswith("www."):
+        base_host = base_host[4:]
 
     if candidate_host == base_host:
         return True

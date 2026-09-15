@@ -13,6 +13,7 @@ import { Link } from 'react-router-dom'
 import { Check, ShieldCheck, FileText, Repeat } from 'lucide-react'
 
 import TopBar from '../components/TopBar'
+import SiteFooter from '../components/SiteFooter'
 import ScanForm from '../components/ScanForm'
 import { PRICING_PLANS, PRICING_ANCHOR, planDestination } from '../lib/pricing'
 import '../styles/landing.css'
@@ -191,13 +192,12 @@ export default function Landing() {
 
       {/* Outside <main> deliberately: a page footer is not part of the page's
           main content, and putting it inside would make the skip link land a
-          keyboard user on a region that ends with the site's boilerplate. */}
-      <footer className="landing-footer">
-        <p>
-          SecuScan only scans sites you own or are authorised to test.
-          Every scan requires explicit confirmation of that authorisation.
-        </p>
-      </footer>
+          keyboard user on a region that ends with the site's boilerplate.
+
+          The definition lives in SiteFooter now, because the legal pages carry
+          the same footer and Paddle's domain check looks for those links on the
+          pages it checks. One component means the links cannot drift apart. */}
+      <SiteFooter />
     </div>
   )
 }

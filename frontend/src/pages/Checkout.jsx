@@ -606,18 +606,47 @@ export default function Checkout() {
   if (processing) {
     return shell(
       <section className="card co-card" style={{ textAlign: 'center', padding: '3.5rem 1.5rem' }}>
-        <div style={{ margin: '0 auto 1.5rem', display: 'flex', justifyContent: 'center' }}>
-          <Loader2 className="co-spin" size={36} strokeWidth={2.5} style={{ color: 'var(--accent)' }} aria-hidden="true" />
-        </div>
+        {/* The loader is dropped once the wait has ended. Two states, one screen:
+            still watching, or finished watching — and the difference has to be
+            visible, because "we are checking" and "we stopped checking" call for
+            different things from the reader. */}
+        {!settleTimedOut && (
+          <div style={{ margin: '0 auto 1.5rem', display: 'flex', justifyContent: 'center' }}>
+            <Loader2 className="co-spin" size={36} strokeWidth={2.5} style={{ color: 'var(--accent)' }} aria-hidden="true" />
+          </div>
+        )}
 
         <h1 className="page-title" style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>
-          Payment processing, your plan will update shortly
+          {settleTimedOut
+            ? 'Payment received, activation is still in progress'
+            : 'Payment processing, your plan will update shortly'}
         </h1>
 
-        <p className="co-text" style={{ maxWidth: '480px', margin: '0 auto 1.5rem', fontSize: '0.9375rem' }}>
-          We received your transaction and are waiting for confirmation from Paddle to activate your{' '}
-          <strong>{plan.name}</strong> subscription. This usually takes just a few moments.
-        </p>
+        {settleTimedOut ? (
+          <>
+            <p className="co-text" style={{ maxWidth: '480px', margin: '0 auto 1rem', fontSize: '0.9375rem' }}>
+              Your payment went through. Activating your <strong>{plan.name}</strong>{' '}
+              plan is taking longer than usual, so we have stopped waiting on this
+              screen — nothing is wrong with your payment, and you do not need to
+              pay again.
+            </p>
+
+            <p className="co-text" style={{ maxWidth: '480px', margin: '0 auto 1.5rem', fontSize: '0.9375rem' }}>
+              Your dashboard will show the new plan as soon as the confirmation
+              lands, usually within a few minutes. If it has not appeared after
+              that, email{' '}
+              <a href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(`Plan not activated — ${plan.name}`)}`}>
+                {CONTACT_EMAIL}
+              </a>{' '}
+              and we will activate it by hand.
+            </p>
+          </>
+        ) : (
+          <p className="co-text" style={{ maxWidth: '480px', margin: '0 auto 1.5rem', fontSize: '0.9375rem' }}>
+            We received your transaction and are waiting for confirmation from Paddle to activate your{' '}
+            <strong>{plan.name}</strong> subscription. This usually takes just a few moments.
+          </p>
+        )}
 
         <div className="co-actions" style={{ justifyContent: 'center' }}>
           <button

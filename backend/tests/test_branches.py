@@ -6,6 +6,7 @@ network needed, and the fixture reads as the case it is testing.
 """
 
 import asyncio
+import re
 
 import _path  # noqa: F401  - puts backend/ on sys.path; must precede the imports below
 from scanning.checks._finding import CRITICAL, PASSED, SKIPPED, WARNING
@@ -293,8 +294,38 @@ check("Tier 1 has the expected number of checks", len(TIER1_CHECKS), 7)
 _tier1_modules = {c.__name__: inspect.getmodule(c) for c in TIER1_CHECKS}
 _tier2_names = {c.__name__ for c in TIER2_CHECKS}
 
-check("the enumeration check is Tier 2", "check_account_enumeration" in _tier2_names, True)
-check("  and is nowhere in Tier 1", "check_account_enumeration" in _tier1_modules, False)
+# Every Tier 2 check by name. Listed explicitly rather than derived from the registry,
+# because deriving it from the thing under test would make this assertion vacuous - a
+# check that moved to Tier 1 would simply disappear from both sides and pass.
+for _tier2_name in (
+    "check_account_enumeration",
+    "check_session_cookie",
+    "check_logout",
+    "check_password_reset",
+    "check_two_factor",
+):
+    check(f"{_tier2_name} is Tier 2", _tier2_name in _tier2_names, True)
+    check(f"  and is nowhere in Tier 1", _tier2_name in _tier1_modules, False)
+
+check("Tier 2 has the expected number of checks", len(TIER2_CHECKS), 5)
+
+# THE SHARED TIER 2 HELPERS POST, AND MUST STAY OUT OF TIER 1.
+# _session.py submits credentials and _endpoints.py imports it. Neither is a check, so
+# neither appears in a registry - but a Tier 1 check that imported either would gain the
+# ability to post without any name moving between the two lists above. The source walk
+# below would catch the .post( itself; this catches the import, which is the earlier and
+# clearer signal.
+# Matched as an IMPORT STATEMENT, not as a bare substring: cookies_check.py has a local
+# _is_session_cookie() helper, and a substring test flags that as importing _session -
+# a false failure that would train the next reader to edit the assertion rather than
+# believe it.
+_SESSION_IMPORT = re.compile(r"^\s*(from|import)\s+.*\b_session\b", re.M)
+_ENDPOINTS_IMPORT = re.compile(r"^\s*(from|import)\s+.*\b_endpoints\b", re.M)
+
+for _name, _module in sorted(_tier1_modules.items()):
+    _src = inspect.getsource(_module)
+    check(f"{_name} does not import the session helper", bool(_SESSION_IMPORT.search(_src)), False)
+    check(f"  {_name} does not import the endpoint finder", bool(_ENDPOINTS_IMPORT.search(_src)), False)
 
 for _name, _module in sorted(_tier1_modules.items()):
     _source = inspect.getsource(_module)

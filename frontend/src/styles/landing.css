@@ -507,21 +507,13 @@
 .pricing-card button { margin-top: auto; justify-content: center; }
 
 /* ============================================================================
-   FOOTER
+   FOOTER — MOVED OUT
+   The .landing-footer and .footer-links rules that used to sit here now live in
+   styles/footer.css, imported by components/SiteFooter.jsx. They moved with the
+   markup: the footer is shared with the legal pages now, and a page that renders
+   SiteFooter without importing landing.css would have lost them. See the note at
+   the top of footer.css.
    ========================================================================== */
-
-.landing-footer {
-  border-top: 1px solid var(--border);
-  padding: var(--space-6) 0 var(--space-10);
-  text-align: center;
-}
-.landing-footer p {
-  font-size: var(--text-xs);
-  color: var(--muted);
-  line-height: var(--leading-relaxed);
-  max-width: 520px;
-  margin: 0 auto;
-}
 
 /* ============================================================================
    NARROW SCREENS

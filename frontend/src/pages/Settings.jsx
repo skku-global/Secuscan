@@ -83,6 +83,8 @@ import {
   ArrowUpRight,
   Ban,
   Undo2,
+  MessageSquare,
+  Send,
 } from 'lucide-react'
 
 import TopBar from '../components/TopBar'
@@ -91,7 +93,7 @@ import { useAuth } from '../context/AuthContext'
 import { checkPassword, PASSWORD_MIN_LENGTH } from '../lib/passwordPolicy'
 import { formatAbsoluteDate } from '../lib/formatDate'
 import { formatAmount, intervalSuffix } from '../lib/cardFormat'
-import { PRICING_ANCHOR } from '../lib/pricing'
+import { PRICING_ANCHOR, CONTACT_EMAIL } from '../lib/pricing'
 import * as api from '../lib/api'
 import '../styles/auth.css'
 import '../styles/settings.css'
@@ -138,8 +140,8 @@ export default function Settings() {
   const [freshCodes, setFreshCodes] = useState([])
 
   /* WHICH FORM IS OPEN: '' | 'cancel' | 'regenerate' | 'disable' | 'password' |
-     'signout'. A single string rather than five booleans, because they are mutually
-     exclusive and five booleans can all be true at once. Opening one closes the
+     'signout' | 'contact'. A single string rather than six booleans, because they are
+     mutually exclusive and six booleans can all be true at once. Opening one closes the
      others, which falls out of the representation instead of needing to be enforced. */
   const [panel, setPanel] = useState('')
 
@@ -149,6 +151,15 @@ export default function Settings() {
   const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
+
+  /* THE CONTACT FORM'S TWO FIELDS, and they are separate from the three above rather
+     than reusing them, for the one reason that matters: `openPanel` wipes those on
+     every switch, which is exactly right for a password and exactly wrong for a
+     half-written support message. Somebody who opens the contact form, scrolls up to
+     re-read the billing section, and comes back should still find their paragraph.
+     These are cleared on a successful SEND instead — see submitContact. */
+  const [contactSubject, setContactSubject] = useState('')
+  const [contactMessage, setContactMessage] = useState('')
 
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -268,6 +279,13 @@ export default function Settings() {
     setDone('')
     setTwoFactorNotice('')
     setSessionsNotice('')
+
+    /* contactSubject and contactMessage are DELIBERATELY NOT CLEARED HERE. The reason
+       above is about credentials: a password left in state is a field the user cannot
+       see contributing to a request they did not intend. A support message is the
+       opposite case — it is the user's own prose, it is visible in the form that owns
+       it, and discarding it because they opened another panel is losing work rather
+       than protecting anything. It is cleared when it has been SENT. */
   }
 
   /* --- The actions ------------------------------------------------------- */
@@ -495,6 +513,36 @@ export default function Settings() {
          through exactly one code path however a session ends. Its api.logout() call
          will now 401 and be ignored — api.logout never throws, by design. */
       await signOut()
+    })
+  }
+
+  /* WHY THE FIELDS ARE CLEARED ONLY ON SUCCESS: `run` puts a thrown message into
+     `error` and stops, leaving the form on screen. If this cleared the fields first,
+     a 429 or a provider outage — both of which the endpoint answers with "try again
+     in a few minutes" — would delete the message it just told the user to resend.
+     The clear happens after the await returns, so it only runs on a send the server
+     confirmed.
+
+     WHAT THE CONFIRMATION SAYS is the second half of that: it names the address the
+     reply will come back to, because the endpoint sends with Reply-To set to this
+     account's own email and somebody who signed up with one address and reads mail at
+     another needs to know which one to watch. */
+  function submitContact(event) {
+    event.preventDefault()
+
+    return run(async () => {
+      await api.sendContactMessage({
+        subject: contactSubject,
+        message: contactMessage,
+      })
+
+      setPanel('')
+      setContactSubject('')
+      setContactMessage('')
+
+      setDone(
+        `Message sent. We will reply to ${user?.email ?? 'the address on this account'}.`,
+      )
     })
   }
 
@@ -1638,6 +1686,162 @@ export default function Settings() {
               </button>
             </div>
           </form>
+        )}
+      </section>
+
+      {/* --- Get help ------------------------------------------------------- */}
+
+      {/* WHY THIS SECTION IS THE LAST ONE: it is the thing you reach for when one of
+          the sections above did not do what you needed, so it sits after all of them
+          rather than competing with them.
+
+          WHY THE WHOLE SECTION IS BEHIND status.emailAvailable: the endpoint answers
+          503 when the server has no mail provider, and a form that is always visible
+          but sometimes refuses is worse than no form — the user writes the message
+          first and is told afterwards. When email is off, the paragraph below falls
+          back to the mailto: link, which works with no server involvement at all.
+
+          THE ADDRESS IS SHOWN EITHER WAY. Even with the form working, somebody whose
+          problem IS this account — locked out, or a billing charge they cannot reach
+          the account to discuss — needs a route that does not require being signed in
+          to use it. */}
+      <section className="card set-card">
+        <h2 className="set-heading">Get help</h2>
+
+        {status?.emailAvailable ? (
+          <>
+            <p className="set-text">
+              A question about a scan, a charge, or this account. It goes to our
+              support mailbox and the reply comes back to your account email.
+            </p>
+
+            {panel !== 'contact' && (
+              <div className="set-actions">
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => openPanel('contact')}
+                >
+                  <MessageSquare size={15} strokeWidth={2} />
+                  Send us a message
+                </button>
+              </div>
+            )}
+
+            {panel === 'contact' && (
+              <form className="auth-form set-panel" onSubmit={submitContact}>
+                <h3 className="set-panel-title">Send us a message</h3>
+
+                {/* NO "YOUR EMAIL" FIELD, and its absence is the security property
+                    rather than an oversight. The server takes the sender from the
+                    session — see POST /contact — because a form with that field is a
+                    way to make mail arrive at our support mailbox appearing to come
+                    from anybody. Saying whose account it is sent from closes the
+                    obvious question that raises. */}
+                <p className="auth-fine">
+                  Sent from {user?.email ?? 'this account'}, and we reply to the same
+                  address.
+                </p>
+
+                <div className="field">
+                  <label className="field-label" htmlFor="set-contact-subject">
+                    Subject
+                  </label>
+                  <input
+                    className="input auth-input"
+                    id="set-contact-subject"
+                    type="text"
+                    value={contactSubject}
+                    onChange={(event) => setContactSubject(event.target.value)}
+                    /* Matches the server's limit exactly. The endpoint rejects a longer
+                       one with a sentence; stopping it here means the user finds out
+                       while typing rather than after pressing Send. */
+                    maxLength={200}
+                    required
+                    disabled={busy}
+                    autoFocus
+                  />
+                </div>
+
+                <div className="field">
+                  <label className="field-label" htmlFor="set-contact-message">
+                    Message
+                  </label>
+                  <textarea
+                    className="input set-textarea"
+                    id="set-contact-message"
+                    value={contactMessage}
+                    onChange={(event) => setContactMessage(event.target.value)}
+                    maxLength={5000}
+                    rows={6}
+                    required
+                    disabled={busy}
+                  />
+
+                  {/* ONLY ONCE IT IS CLOSE TO MATTERING. A counter sitting at
+                      "0 / 5000" from the first keystroke reads as a demand for length.
+                      This appears in the last tenth, where it is a warning instead. */}
+                  {contactMessage.length > 4500 && (
+                    <p className="auth-fine">
+                      {contactMessage.length} of 5000 characters.
+                    </p>
+                  )}
+                </div>
+
+                {error && (
+                  <p className="auth-error" role="alert">
+                    <AlertCircle className="icon" size={16} strokeWidth={2} aria-hidden="true" />
+                    <span>{error}</span>
+                  </p>
+                )}
+
+                <div className="set-actions">
+                  {/* DISABLED ON WHITESPACE, not merely on empty. `required` alone
+                      accepts a single space, and the server would then reject it —
+                      trim() here makes the button agree with the validator that
+                      actually decides. */}
+                  <button
+                    className="btn-primary"
+                    type="submit"
+                    disabled={busy || !contactSubject.trim() || !contactMessage.trim()}
+                  >
+                    <Send size={15} strokeWidth={2} />
+                    {busy ? 'Sending…' : 'Send message'}
+                  </button>
+
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setPanel('')}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </>
+        ) : (
+          <p className="set-text">
+            Email us at{' '}
+            <a className="set-link" href={`mailto:${CONTACT_EMAIL}`}>
+              {CONTACT_EMAIL}
+            </a>{' '}
+            and we will get back to you.
+          </p>
+        )}
+
+        {/* THE WAY OUT THAT DOES NOT NEED THIS PAGE TO WORK. Rendered only when the
+            form is the thing above it — the fallback branch already IS this link. */}
+        {status?.emailAvailable && (
+          <p className="auth-fine">
+            You can also email{' '}
+            <a className="set-link" href={`mailto:${CONTACT_EMAIL}`}>
+              {CONTACT_EMAIL}
+            </a>{' '}
+            directly — useful if you are ever locked out of this account.
+          </p>
         )}
       </section>
 

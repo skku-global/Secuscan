@@ -29,6 +29,9 @@ import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import Settings from './pages/Settings'
 import Checkout from './pages/Checkout'
+import Terms from './pages/Terms'
+import Privacy from './pages/Privacy'
+import Refund from './pages/Refund'
 
 export default function App() {
   return (
@@ -197,6 +200,25 @@ export default function App() {
             makes the link work, and it is not a permission. See the comment on
             get_shared_report in main.py. */}
         <Route path="/report/:id" element={<Report />} />
+
+        {/* The legal pages: /terms, /privacy, /refund.
+            OUTSIDE RequireAuth, for two reasons that happen to point the same way.
+
+            First, they are public documents — a visitor deciding whether to sign up
+            must be able to read the terms of what they are being asked to agree to,
+            and a customer chasing a refund must be able to read the policy without
+            first proving they have an account.
+
+            Second, Paddle checks these URLs during domain verification, before live
+            checkout is switched on. A legal page that redirects to /login is, to
+            that check, a legal page that does not exist.
+
+            [React] <Link> and not <a>: these are real routes served by this app, so
+            client-side navigation applies. (A mailto: or a #hash would need a plain
+            <a> — see the note on the footer.) */}
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/refund" element={<Refund />} />
 
         {/* [React] path="*" is the catch-all: any URL that matched nothing above
             lands here, so a typo'd address shows a real page, not a blank screen. */}
