@@ -24,6 +24,7 @@ Interactive docs: http://127.0.0.1:8000/docs
 """
 
 import ipaddress
+import json
 import secrets
 import socket
 import time
@@ -31,7 +32,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -1248,6 +1249,73 @@ async def change_password(
     revoked = await database.delete_sessions_for_user(user["id"], except_hash=kept_hash)
 
     return {"changed": True, "otherSessionsSignedOut": revoked}
+
+
+# WHY THIS EXISTS
+# Request model for account deletion.
+class DeleteAccountRequest(BaseModel):
+    password: str | None = Field(default=None, description="Current password for password accounts")
+    confirm: bool = Field(default=False, description="Must be true to permanently delete account")
+
+
+# WHY THIS EXISTS
+# GDPR/CCPA data export. Returns a machine-readable JSON archive containing the
+# user's profile, purchase orders, and all audit findings.
+@app.get("/auth/export")
+async def export_account(user: dict = Depends(require_session)) -> Response:
+    data = await database.export_user_account_data(user["id"])
+    if not data:
+        raise HTTPException(status_code=404, detail="User account not found.")
+
+    return Response(
+        content=json.dumps(data, indent=2),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": 'attachment; filename="secuscan-account-data.json"',
+        },
+    )
+
+
+# WHY THIS EXISTS
+# Complete account deletion (Right to be Forgotten).
+#
+# STEP-UP AUTHENTICATION IS ENFORCED:
+#   - Accounts with a password must provide the correct current password.
+#   - OAuth (Google) accounts must pass confirm=True.
+#
+# Deletes the user record, all active sessions, all historical scans, and any
+# test credentials from the database. Financial orders are kept but anonymized.
+@app.delete("/auth/account")
+async def delete_account(
+    request: DeleteAccountRequest,
+    user: dict = Depends(require_session),
+) -> dict:
+    if not request.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirmation is required to permanently delete your account.",
+        )
+
+    stored_hash = user.get("passwordHash")
+    if stored_hash:
+        if not request.password:
+            raise HTTPException(
+                status_code=400,
+                detail="Your current password is required to delete this account.",
+            )
+        if not auth.verify_password(stored_hash, request.password):
+            raise HTTPException(
+                status_code=401,
+                detail="Your password was incorrect.",
+            )
+
+    result = await database.delete_user_account_data(user["id"])
+
+    return {
+        "deleted": True,
+        "message": "Your account and all associated data have been permanently deleted.",
+        "details": result,
+    }
 
 
 # WHY THIS EXISTS

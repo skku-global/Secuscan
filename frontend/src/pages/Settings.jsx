@@ -85,6 +85,8 @@ import {
   Undo2,
   MessageSquare,
   Send,
+  Download,
+  Trash2,
 } from 'lucide-react'
 
 import TopBar from '../components/TopBar'
@@ -160,6 +162,10 @@ export default function Settings() {
      These are cleared on a successful SEND instead — see submitContact. */
   const [contactSubject, setContactSubject] = useState('')
   const [contactMessage, setContactMessage] = useState('')
+
+  /* DATA EXPORT & ACCOUNT DELETION STATE */
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -279,6 +285,7 @@ export default function Settings() {
     setDone('')
     setTwoFactorNotice('')
     setSessionsNotice('')
+    setDeleteConfirmText('')
 
     /* contactSubject and contactMessage are DELIBERATELY NOT CLEARED HERE. The reason
        above is about credentials: a password left in state is a field the user cannot
@@ -543,6 +550,30 @@ export default function Settings() {
       setDone(
         `Message sent. We will reply to ${user?.email ?? 'the address on this account'}.`,
       )
+    })
+  }
+
+  async function exportData() {
+    if (exporting) return
+    setError('')
+    setExporting(true)
+    try {
+      await api.exportAccountData()
+      setDone('Account data archive downloaded successfully.')
+    } catch (caught) {
+      setError(caught.message || 'Could not export account data.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  function deleteAccount() {
+    return run(async () => {
+      await api.deleteAccount({
+        password: password || undefined,
+        confirm: true,
+      })
+      signOut()
     })
   }
 
@@ -1843,6 +1874,137 @@ export default function Settings() {
             directly — useful if you are ever locked out of this account.
           </p>
         )}
+      </section>
+
+      {/* --- Data and privacy ------------------------------------------- */}
+      <section className="card set-section" aria-labelledby="set-data-title">
+        <h2 className="set-section-title" id="set-data-title">
+          <Download size={16} strokeWidth={2} aria-hidden="true" />
+          Data and privacy
+        </h2>
+
+        <p className="set-text">
+          Export a complete copy of your account profile, orders, and scan findings, or
+          permanently delete your account and all associated data.
+        </p>
+
+        <div className="set-actions" style={{ marginTop: '1rem', marginBottom: '1.5rem' }}>
+          <button
+            className="btn-secondary"
+            type="button"
+            disabled={busy || exporting}
+            onClick={exportData}
+          >
+            <Download size={15} strokeWidth={2} aria-hidden="true" />
+            {exporting ? 'Preparing export…' : 'Export my data'}
+          </button>
+        </div>
+
+        <div className="set-danger-zone" style={{ borderTop: '1px solid var(--border-subtle, rgba(255,255,255,0.08))', paddingTop: '1.25rem' }}>
+          <h3 className="set-heading" style={{ color: 'var(--color-danger, #ef4444)', fontSize: '0.9375rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+            Delete account
+          </h3>
+
+          <p className="set-text" style={{ fontSize: '0.875rem' }}>
+            Permanently delete your SecuScan account, active sessions, scan credentials, and all historical audit results.
+            This action cannot be undone.
+          </p>
+
+          <div className="set-actions" style={{ marginTop: '0.75rem' }}>
+            <button
+              className="btn-secondary set-btn-danger"
+              type="button"
+              disabled={busy}
+              onClick={() => openPanel('delete')}
+              aria-expanded={panel === 'delete'}
+              aria-controls="set-delete-form"
+            >
+              <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+              Delete my account
+            </button>
+          </div>
+
+          {panel === 'delete' && (
+            <form
+              className="auth-form set-panel"
+              id="set-delete-form"
+              onSubmit={(e) => {
+                e.preventDefault()
+                deleteAccount()
+              }}
+              style={{ marginTop: '1rem' }}
+            >
+              <p className="auth-fine" style={{ color: 'var(--color-danger, #ef4444)' }}>
+                <strong>Warning:</strong> All your scans and account history will be permanently deleted.
+              </p>
+
+              {status?.hasPassword ? (
+                <div className="field">
+                  <label className="field-label" htmlFor="set-delete-password">
+                    Enter your password to confirm
+                  </label>
+                  <input
+                    className="input auth-input"
+                    id="set-delete-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    disabled={busy}
+                    autoFocus
+                  />
+                </div>
+              ) : (
+                <div className="field">
+                  <label className="field-label" htmlFor="set-delete-confirm">
+                    Type <strong>DELETE</strong> to confirm
+                  </label>
+                  <input
+                    className="input auth-input"
+                    id="set-delete-confirm"
+                    type="text"
+                    placeholder="DELETE"
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    required
+                    disabled={busy}
+                    autoFocus
+                  />
+                </div>
+              )}
+
+              {error && panel === 'delete' && (
+                <p className="auth-error" role="alert">
+                  <AlertCircle className="icon" size={16} strokeWidth={2} aria-hidden="true" />
+                  <span>{error}</span>
+                </p>
+              )}
+
+              <div className="set-panel-actions">
+                <button
+                  className="btn-primary set-btn-danger"
+                  type="submit"
+                  disabled={busy || (status?.hasPassword ? !password : deleteConfirmText !== 'DELETE')}
+                  style={{ backgroundColor: 'var(--color-danger, #ef4444)', borderColor: 'var(--color-danger, #ef4444)' }}
+                >
+                  <Trash2 size={15} strokeWidth={2} />
+                  {busy ? 'Deleting account…' : 'Permanently delete account'}
+                </button>
+
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setPanel('')}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </section>
 
       {/* THE CONFIRMATION LIVES AT THE BOTTOM, not beside each button. WHY: it is

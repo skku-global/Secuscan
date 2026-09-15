@@ -866,3 +866,43 @@ export async function sendContactMessage({ subject, message }) {
     `Could not send your message. Email ${CONTACT_EMAIL} directly instead.`,
   )
 }
+
+/* ============================================================================
+   DATA PRIVACY & ACCOUNT DELETION
+   ========================================================================== */
+
+/* Downloads a full JSON archive of the account's personal data, orders, and scans.
+   Triggers a browser file download of secuscan-account-data.json. */
+export async function exportAccountData() {
+  const response = await authedRequest('/auth/export')
+  if (!response.ok) {
+    const parsed = await readBodySafely(response)
+    throw new Error(readErrorMessage(parsed, 'Could not export account data.'))
+  }
+  const blob = await response.blob()
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.style.display = 'none'
+  a.href = url
+  a.download = 'secuscan-account-data.json'
+  document.body.appendChild(a)
+  a.click()
+  window.URL.revokeObjectURL(url)
+  document.body.removeChild(a)
+}
+
+/* Permanently deletes the user account and associated scans.
+   Requires confirm: true, plus password if account is password-based. */
+export async function deleteAccount({ password, confirm = true } = {}) {
+  const response = await authedRequest('/auth/account', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password, confirm }),
+  })
+  if (!response.ok) {
+    const parsed = await readBodySafely(response)
+    throw new Error(readErrorMessage(parsed, 'Could not delete your account.'))
+  }
+  return response.json()
+}
+

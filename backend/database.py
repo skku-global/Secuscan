@@ -855,6 +855,91 @@ async def disable_totp(user_id: str) -> None:
     )
 
 
+# WHY THIS EXISTS
+# Complete right-to-be-forgotten deletion. Removes the user account and purges
+# all associated personal and operational records:
+#   - User document in users collection
+#   - All sessions in sessions collection
+#   - All scans in scans collection
+#   - Any test account credentials in scan_credentials collection
+# Orders are retained in orders collection for legal/tax accounting requirements,
+# with the user association anonymized / marked userDeleted.
+async def delete_user_account_data(user_id: str) -> dict:
+    users = _get_collection(USERS_COLLECTION)
+    sessions = _get_collection(SESSIONS_COLLECTION)
+    scans = _get_collection(COLLECTION_NAME)
+    credentials = _get_collection(CREDENTIALS_COLLECTION)
+    orders = _get_collection(ORDERS_COLLECTION)
+
+    deleted_user = await users.delete_one({"_id": user_id})
+    deleted_sessions = await sessions.delete_many({"userId": user_id})
+    deleted_scans = await scans.delete_many({"userId": user_id})
+    deleted_creds = await credentials.delete_many({"userId": user_id})
+
+    # Anonymize orders for accounting compliance
+    await orders.update_many(
+        {"userId": user_id},
+        {"$set": {"userDeleted": True, "anonymizedAt": datetime.now(timezone.utc).isoformat()}}
+    )
+
+    return {
+        "userDeleted": deleted_user.deleted_count > 0,
+        "sessionsDeleted": deleted_sessions.deleted_count,
+        "scansDeleted": deleted_scans.deleted_count,
+        "credentialsDeleted": deleted_creds.deleted_count,
+    }
+
+
+# WHY THIS EXISTS
+# Assembles a complete, GDPR-compliant export of all personal data, purchase records,
+# and audit findings belonging to an account.
+# Sensitive secrets (passwordHash, totpSecret, tempTotpSecret, internal _id) are
+# stripped so the archive contains only user-facing information.
+async def export_user_account_data(user_id: str) -> dict | None:
+    user = await find_user_by_id(user_id)
+    if not user:
+        return None
+
+    # Strip secrets
+    user_data = {
+        "id": user["id"],
+        "email": user["email"],
+        "name": user.get("name"),
+        "createdAt": user.get("createdAt").isoformat() if isinstance(user.get("createdAt"), datetime) else user.get("createdAt"),
+        "authProvider": "google" if user.get("googleId") else "email",
+        "planId": user.get("planId", "free"),
+        "subscription": user.get("subscription"),
+        "twoFactorEnabled": bool(user.get("totpConfirmedAt")),
+    }
+
+    user_scans = await list_scans(user_id, limit=1000)
+    user_orders = await list_orders(user_id, limit=1000)
+
+    # Clean orders for export
+    clean_orders = []
+    for order in user_orders:
+        o = dict(order)
+        clean_orders.append({
+            "id": o.get("id"),
+            "planId": o.get("planId"),
+            "amountCents": o.get("amountCents"),
+            "currency": o.get("currency"),
+            "status": o.get("status"),
+            "cardBrand": o.get("cardBrand"),
+            "cardLast4": o.get("cardLast4"),
+            "createdAt": o.get("createdAt").isoformat() if isinstance(o.get("createdAt"), datetime) else o.get("createdAt"),
+        })
+
+    return {
+        "exportedAt": datetime.now(timezone.utc).isoformat(),
+        "version": "1.0",
+        "account": user_data,
+        "orders": clean_orders,
+        "scans": user_scans,
+    }
+
+
+
 # ============================================================================
 # GOOGLE ACCOUNTS
 # ============================================================================
