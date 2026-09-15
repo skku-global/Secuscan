@@ -22,6 +22,8 @@ finding. Adding this file changed one line in engine.py and nothing else.
 
 # No httpx import: this check no longer makes a request of its own. It reads the
 # homepage discovery already fetched - see check_headers below.
+import re
+
 from ._finding import CRITICAL, PASSED, WARNING, finding_builder
 
 # Matches the checkId the frontend already renders (frontend/src/mocks/scanData.js).
@@ -76,7 +78,21 @@ SECURITY_HEADERS = (
 # a modern site setting the former is not missing protection just because it
 # omitted the latter. Reporting it as absent anyway would be a false positive, and
 # a scanner that cries wolf about correct configuration is one people stop reading.
-FRAME_ANCESTORS_DIRECTIVE = "frame-ancestors"
+#
+# A DIRECTIVE, NOT A SUBSTRING. This was `"frame-ancestors" in csp_value`, which
+# also answers yes to a policy that merely mentions the word somewhere in a VALUE -
+# `report-uri https://csp.example.com/frame-ancestors` is the shape that does it, and
+# a CSP-reporting endpoint named after the directive it collects is not far-fetched.
+# The cost is a false PASSED: X-Frame-Options is genuinely absent, nothing supersedes
+# it, and the report says the site is covered. A CSP is `name value; name value`, so
+# a directive name occurs at the start of the policy or just after a semicolon, and
+# asking for that position is what separates a directive from a mention of one.
+#
+# This deliberately does NOT look at the directive's value. `frame-ancestors *`
+# allows every framer and still counts as covered here - that is the presence-not-
+# quality boundary this whole check is drawn on, stated in the module docstring, and
+# widening it here would be the two-questions-at-once problem the docstring refuses.
+FRAME_ANCESTORS_DIRECTIVE = re.compile(r"(?:^|;)\s*frame-ancestors\b", re.I)
 
 # How many missing headers it takes to call this critical rather than a warning.
 # A named constant because it is a judgement call, not a fact - it belongs
@@ -100,10 +116,9 @@ def _is_covered_by_csp(header_key: str, csp_value: str) -> bool:
     if header_key != "x-frame-options":
         return False
 
-    # PYTHON-SPECIFIC: `in` on a string is a substring test - the equivalent of
-    # JS's .includes(). Lowercasing first because CSP directive names are
-    # case-insensitive and a server may well write "frame-ancestors" in any case.
-    return FRAME_ANCESTORS_DIRECTIVE in csp_value.lower()
+    # re.I rather than .lower() because CSP directive names are case-insensitive and
+    # the case-folding now belongs to the pattern along with the position rule.
+    return FRAME_ANCESTORS_DIRECTIVE.search(csp_value) is not None
 
 
 # WHY THIS EXISTS
@@ -160,14 +175,45 @@ async def check_headers(target) -> dict:
     present = []
     missing = []
 
+    # HEADERS THE SERVER SENT WITH NOTHING IN THEM. Tracked separately from `missing`
+    # although they count as missing, because the two need DIFFERENT remediation and
+    # a finding that conflates them sends the customer to the wrong place.
+    #
+    # THIS WAS A FALSE PASSED, the worst direction this check can fail in. The test
+    # was `header_key in headers` - PRESENCE OF THE KEY, not of a value - so a server
+    # answering `Content-Security-Policy:` with an empty value was credited with a
+    # policy it does not have, and a site sending all five that way was told "All five
+    # protective response headers are present". Nothing was protecting anything. This
+    # is reachable, not theoretical: httpx preserves an empty header value and
+    # discovery stores it verbatim via `dict(response.headers)`, and the usual causes
+    # are ordinary - `add_header X-Frame-Options "";` in nginx, or a framework reading
+    # its policy from an environment variable that was never set.
+    #
+    # Every one of the five is useless empty, so there is no header here that wants an
+    # exception: HSTS without max-age is invalid, the only meaningful value of
+    # X-Content-Type-Options is `nosniff`, an empty X-Frame-Options is ignored, and an
+    # empty Referrer-Policy means "fall back to the default" by specification - which
+    # is the absence of a choice, not a choice.
+    blank = []
+
     for header_key, display_name, purpose in SECURITY_HEADERS:
         # PYTHON-SPECIFIC: this unpacks each inner tuple into three names in one
         # step - the same idea as JS array destructuring,
         # `const [a, b, c] = tuple`.
-        if header_key in headers or _is_covered_by_csp(header_key, csp_value):
+        #
+        # .strip() as well as truthiness, because a header holding only spaces is
+        # every bit as empty as one holding nothing, and a server that emits one is
+        # doing so by accident either way.
+        value = headers.get(header_key, "").strip()
+
+        if value or _is_covered_by_csp(header_key, csp_value):
             present.append(display_name)
         else:
             missing.append((display_name, purpose))
+
+            # Sent, but empty. The key being there is what separates the two cases.
+            if header_key in headers:
+                blank.append(display_name)
 
     # PYTHON-SPECIFIC: an empty list is FALSY, so `if not missing` reads as "if
     # there is nothing missing". No .length check needed.
@@ -205,6 +251,22 @@ async def check_headers(target) -> dict:
         CRITICAL if len(missing) >= CRITICAL_MISSING_THRESHOLD else WARNING
     )
 
+    # A HEADER SENT EMPTY NEEDS ITS OWN SENTENCE. Telling a customer the response "did
+    # not include" a header they can see in their own configuration reads as a scanner
+    # error, and that costs the same credibility a false positive costs even though the
+    # verdict itself is right. It also selects a different fix: nothing needs adding,
+    # something needs explaining - which is the same rule the Tier 2 skip reasons
+    # follow, where the reason is not a label but the thing that picks the remediation.
+    blank_note = ""
+    if blank:
+        blank_note = (
+            f"\n\n{len(blank)} of these WERE returned, but with an empty value: "
+            f"{', '.join(blank)}. A browser ignores a header with no value, so it "
+            "protects nothing - but the cause is configuration that produces a blank "
+            "value, not a header nobody added, so look for the setting that is empty "
+            "rather than adding a new line."
+        )
+
     # Each missing header gets its own line saying what it would have done. A bare
     # list of header names tells a client what to paste; saying what each one
     # prevents tells them why it is worth the deploy.
@@ -222,13 +284,14 @@ async def check_headers(target) -> dict:
         title="Missing security headers",
         description=(
             f"{len(missing)} of {len(SECURITY_HEADERS)} protective headers "
-            f"are absent: {', '.join(missing_names)}"
+            f"are {'absent or empty' if blank else 'absent'}: "
+            f"{', '.join(missing_names)}"
         ),
         explanation=(
-            f"The response from {page.url} did not include the following "
-            f"headers:\n{detail_lines}\n\nEach one is a single line of server "
-            "configuration, and each closes an attack that is otherwise "
-            "available on every page of the site."
+            f"The response from {page.url} did not carry usable values for the "
+            f"following headers:\n{detail_lines}{blank_note}\n\nEach one is a single "
+            "line of server configuration, and each closes an attack that is "
+            "otherwise available on every page of the site."
         ),
         fix=(
             "Set these globally at the web server, load balancer or framework "
@@ -241,5 +304,7 @@ async def check_headers(target) -> dict:
             "status": page.status,
             "present": present,
             "missing": missing_names,
+            # Only when there are any, so a report for the ordinary case is unchanged.
+            **({"sentEmpty": blank} if blank else {}),
         },
     )

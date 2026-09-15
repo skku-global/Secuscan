@@ -85,7 +85,27 @@ _PATTERNS = (
     (
         "Java/JVM stack trace",
         WARNING,
-        re.compile(r"\bat [a-z0-9_.]+\.[A-Za-z0-9_$]+\([A-Za-z0-9_]+\.java:\d+\)"),
+        # THIS MATCHED NO REAL STACK TRACE. The old pattern was
+        # `at <lowercase.package>.<Class>(File.java:N)` - one segment short. Every
+        # real frame is `at package.Class.METHOD(File.java:N)`, so the method name
+        # left nothing for `\(` to match and the whole category never fired; what it
+        # did accept, `at pkg.Class(File.java:N)`, is a shape the JVM does not emit.
+        # A false negative across an entire pattern, and invisible from the code:
+        # it took running a real frame through it to see, which is why every pattern
+        # here is now pinned in both directions in test_exposure.py.
+        #
+        # `[\w$./]+` for the qualifier rather than a lowercase class: Java 9 puts a
+        # module before the package (`java.base/java.util.ArrayList`), inner classes
+        # carry `$`, and a default-package class has no lowercase part at all. The
+        # method allows `<init>`/`<clinit>` and lambda names like `lambda$main$0`.
+        # The real anchor is `(File.ext:line)`, a shape that occurs in JVM traces and
+        # essentially nowhere else, which is what keeps this specific while the
+        # qualifier is permissive. .kt/.scala/.groovy because the label says JVM and
+        # those traces disclose exactly the same thing.
+        re.compile(
+            r"\bat\s+[\w$./]+\.[\w$<>]+"
+            r"\([\w$]+\.(?:java|kt|scala|groovy):\d+\)"
+        ),
         "A Java stack trace reveals package structure and library versions.",
     ),
     (
@@ -100,8 +120,18 @@ _PATTERNS = (
     (
         "Framework debug page",
         WARNING,
+        # `Whoops\?,` demanded a LITERAL question mark - "Whoops?, looks like
+        # something went wrong" - which no software emits. Laravel's Whoops page says
+        # "Whoops, looks like something went wrong.", so the most common debug page on
+        # the web was undetectable. An escaping accident, and the kind only a probe
+        # finds: the pattern reads plausibly right.
+        #
+        # The punctuation is now optional, and the rest of the sentence is still
+        # required. Matching a bare "Whoops" would be the opposite mistake, because a
+        # friendly 404 saying "Whoops! Page not found" is not a debug page - the full
+        # sentence is what makes this specific.
         re.compile(
-            r"(Werkzeug Debugger|Whoops\?, looks like something went wrong|"
+            r"(Werkzeug Debugger|Whoops[!?,]{0,2}\s+looks like something went wrong|"
             r"DjangoDebug|Rails\.application|__debug__|APP_DEBUG)"
         ),
         "A debug interface is enabled, which exposes internals and sometimes a console.",
