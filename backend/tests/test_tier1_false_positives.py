@@ -181,7 +181,7 @@ check("session cookie with all flags -> passed", result["severity"], PASSED)
 # Multiple cookies, all properly flagged - including a non-session one.
 cookies = [
     "sessionid=abc123; Path=/; Secure; HttpOnly; SameSite=Lax",
-    "cart_items=3; Path=/; Secure; SameSite=Lax; Max-Age=600",
+    "cart_items=3; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600",
     "_csrf_token=xyz; Path=/; Secure; HttpOnly; SameSite=Strict",
 ]
 target = ScanTarget(

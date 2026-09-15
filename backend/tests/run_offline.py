@@ -46,6 +46,9 @@ SUITES = [
     "test_two_factor.py",
     "test_contact.py",
     "test_engine_e2e.py",
+    "test_tier1_false_positives.py",
+    "test_finding.py",
+    "test_engine.py",
 ]
 
 
