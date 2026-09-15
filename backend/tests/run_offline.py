@@ -49,7 +49,9 @@ SUITES = [
     "test_tier1_false_positives.py",
     "test_finding.py",
     "test_engine.py",
+    "test_plan_limits.py",
 ]
+
 
 
 def main() -> int:

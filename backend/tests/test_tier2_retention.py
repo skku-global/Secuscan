@@ -97,6 +97,12 @@ class FakeDatabase:
             "ttlHours": ttl_hours,
         })
 
+    async def count_user_scans(self, user_id, since=None):
+        return len(self.saved_scans)
+
+    async def get_user_distinct_sites(self, user_id, since=None):
+        return []
+
 
 class ScanRecorder:
     """Stands in for scanning.engine.run_scan and remembers whether it ran."""

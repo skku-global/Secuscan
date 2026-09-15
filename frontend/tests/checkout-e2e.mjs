@@ -17,10 +17,18 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
 
 page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
 page.on('console', (m) => {
-  if (m.type() === 'error') errors.push(`[console.error] ${m.text()}`)
+  if (m.type() === 'error') {
+    // External third-party scripts (e.g. Google GSI iframe on unconfigured origin)
+    if (m.location()?.url?.includes('accounts.google.com')) return
+    errors.push(`[console.error] ${m.text()}`)
+  }
 })
-page.on('requestfailed', (r) =>
-  failedReqs.push(`${r.method()} ${r.url()} :: ${r.failure()?.errorText}`))
+page.on('requestfailed', (r) => {
+  if (r.url().includes('accounts.google.com')) return
+  failedReqs.push(`${r.method()} ${r.url()} :: ${r.failure()?.errorText}`)
+})
+
+
 
 async function shot(label) {
   stepN += 1
