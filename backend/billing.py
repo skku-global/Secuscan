@@ -328,3 +328,33 @@ def effective_subscription(
         return None
 
     return subscription
+
+
+# WHY THIS EXISTS
+# Determines the start of the user's current billing period for quota enforcement.
+# For accounts with an active subscription (currentPeriodEnd is in the future),
+# the current period starts BILLING_PERIOD_DAYS (30 days) before currentPeriodEnd.
+# For Free accounts or accounts without an active subscription, a rolling 30-day
+# window (now - BILLING_PERIOD_DAYS) is used, matching the "1 scan per month"
+# cadence promised for Free.
+def get_billing_period_start(user: dict, now: datetime | None = None) -> datetime:
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+
+    sub = user.get("subscription")
+    if isinstance(sub, dict):
+        period_ends = sub.get("currentPeriodEnd")
+        if isinstance(period_ends, str):
+            try:
+                period_ends = datetime.fromisoformat(period_ends)
+            except ValueError:
+                period_ends = None
+        if isinstance(period_ends, datetime):
+            if period_ends.tzinfo is None:
+                period_ends = period_ends.replace(tzinfo=timezone.utc)
+            if period_ends > reference:
+                return period_ends - timedelta(days=BILLING_PERIOD_DAYS)
+
+    return reference - timedelta(days=BILLING_PERIOD_DAYS)
+

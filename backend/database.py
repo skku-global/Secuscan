@@ -18,6 +18,7 @@ itself. Anything you read online recommending `motor` is out of date.
 """
 
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 from pymongo import AsyncMongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError, PyMongoError
@@ -309,7 +310,8 @@ async def save_scan(scan: dict, user_id: str) -> bool:
     # already knows who is signed in, so sending the id back would be telling it
     # something it has no use for, and every field an API returns is a field
     # somebody eventually depends on.
-    document = {**scan, "_id": scan["id"], "userId": user_id}
+    target_host = (urlparse(scan.get("targetUrl", "")).hostname or "").lower()
+    document = {**scan, "_id": scan["id"], "userId": user_id, "targetHost": target_host}
 
     try:
         await collection.insert_one(document)
@@ -320,17 +322,19 @@ async def save_scan(scan: dict, user_id: str) -> bool:
 
 
 # WHY THIS EXISTS
-# Both read paths below have to strip the same two internal fields before a
+# Both read paths below have to strip the same internal fields before a
 # document can go out as JSON, and "strip the fields the client must not see" is
 # exactly the kind of step that gets remembered in one function and forgotten in
 # the next one somebody adds. One helper, called by both.
 #
-#   _id     - a duplicate; the scan already carries the same value in "id".
-#   userId  - server-side bookkeeping. It leaks nothing dangerous, but the shared
-#             report endpoint serves strangers, and an owner id is not theirs.
+#   _id        - a duplicate; the scan already carries the same value in "id".
+#   userId     - server-side bookkeeping. It leaks nothing dangerous, but the shared
+#                report endpoint serves strangers, and an owner id is not theirs.
+#   targetHost - internal query acceleration field.
 def _public_scan(document: dict) -> dict:
     document.pop("_id", None)
     document.pop("userId", None)
+    document.pop("targetHost", None)
     return document
 
 
@@ -433,6 +437,48 @@ async def list_scans(user_id: str, limit: int = 50) -> list:
         scans.append(_public_scan(document))
 
     return scans
+
+
+# WHY THIS EXISTS
+# Counts how many scans a user has executed, optionally since a given cutoff
+# timestamp. Used by main.py to enforce plan scanLimit per billing period.
+async def count_user_scans(user_id: str, since: datetime | str | None = None) -> int:
+    collection = _get_collection()
+    query = {"userId": user_id}
+    if since:
+        since_iso = since.isoformat() if isinstance(since, datetime) else str(since)
+        query["scannedAt"] = {"$gte": since_iso}
+    try:
+        return await collection.count_documents(query)
+    except PyMongoError:
+        return 0
+
+
+# WHY THIS EXISTS
+# Returns the distinct target hostnames a user has scanned, optionally since a
+# given cutoff timestamp. Used by main.py to enforce plan siteLimit.
+# Collects both targetHost (indexed on newer documents) and falls back to
+# parsing targetUrl so older scans are accounted for seamlessly.
+async def get_user_distinct_sites(
+    user_id: str, since: datetime | str | None = None
+) -> list[str]:
+    collection = _get_collection()
+    query = {"userId": user_id}
+    if since:
+        since_iso = since.isoformat() if isinstance(since, datetime) else str(since)
+        query["scannedAt"] = {"$gte": since_iso}
+    try:
+        cursor = collection.find(query, {"targetHost": 1, "targetUrl": 1})
+        sites = set()
+        async for document in cursor:
+            host = document.get("targetHost")
+            if not host and document.get("targetUrl"):
+                host = (urlparse(document["targetUrl"]).hostname or "").lower()
+            if host:
+                sites.add(host)
+        return sorted(list(sites))
+    except PyMongoError:
+        return []
 
 
 # ============================================================================

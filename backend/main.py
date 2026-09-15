@@ -385,8 +385,8 @@ class ScanRequest(BaseModel):
 async def create_scan(
     request: ScanRequest, user: dict = Depends(require_session)
 ) -> dict:
-    # Check plan entitlement for Tier 2
-    user_plan = billing.plan_for_user(user)
+    # Check plan entitlement and limits
+    user_plan = billing.effective_plan_for_user(user)
 
     if request.tier == 2:
         if user_plan.get("tier", 1) < 2:
@@ -398,6 +398,38 @@ async def create_scan(
             raise HTTPException(
                 status_code=422,
                 detail="Tier 2 scans require dedicated test account credentials (username and password).",
+            )
+
+    # ENFORCE PLAN LIMITS (scanLimit and siteLimit)
+    # A free account has scanLimit=1 and siteLimit=1; Starter has 10 scans and 1 site;
+    # Business has unlimited scans and 10 sites; Enterprise has no limits.
+    # Refusal happens here before running the engine, before encrypting credentials,
+    # and before any external traffic is sent.
+    scan_limit = user_plan.get("scanLimit")
+    site_limit = user_plan.get("siteLimit")
+    period_start = billing.get_billing_period_start(user)
+
+    if scan_limit is not None:
+        current_scans = await database.count_user_scans(user["id"], since=period_start)
+        if current_scans >= scan_limit:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Scan limit reached for this billing period ({scan_limit} scan{'s' if scan_limit > 1 else ''}). "
+                    f"Upgrade your plan to run more scans."
+                ),
+            )
+
+    if site_limit is not None:
+        target_host = (urlparse(request.url).hostname or "").lower()
+        distinct_sites = await database.get_user_distinct_sites(user["id"], since=period_start)
+        if target_host and (target_host not in distinct_sites) and len(distinct_sites) >= site_limit:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Site limit reached for this billing period ({site_limit} target site{'s' if site_limit > 1 else ''}). "
+                    f"Upgrade your plan to scan additional sites."
+                ),
             )
 
     cred_dict = None
